@@ -27,7 +27,7 @@ function parseRoster(text){
   const rows=[];
   for(const raw of text.split(/\r?\n/)){
     const line=raw.replace(/\s+/g,' ').trim();
-    const match=line.match(/^(\d{1,3})\s+([A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ][A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ .'-]{4,})$/i);
+    const match=line.match(/^(\d{1,3})\s+(.+?)(?:\s+[*FJ]\s*\d*\s*\d*)?$/i);
     if(match && !/estudante|presença|faltas|diário|governo|secretaria/i.test(match[2])) rows.push({number:match[1],name:match[2].trim()});
   }
   return [...new Map(rows.map(row=>[row.number,row])).values()];
@@ -39,13 +39,18 @@ async function readRosterFile(file){
     const pages=[];
     for(let pageNumber=1;pageNumber<=pdf.numPages;pageNumber++){
       const page=await pdf.getPage(pageNumber); const content=await page.getTextContent();
-      pages.push(content.items.map(item=>item.str).join(' '));
+      const lines=[];
+      for(const item of content.items){
+        const y=Math.round(item.transform?.[5]||0); let line=lines.find(entry=>Math.abs(entry.y-y)<3);
+        if(!line){line={y,items:[]};lines.push(line)} line.items.push(item);
+      }
+      pages.push(lines.sort((a,b)=>b.y-a.y).map(line=>line.items.sort((a,b)=>a.transform[4]-b.transform[4]).map(item=>item.str).join(' ')).join('\n'));
     }
     text=pages.join('\n');
   }else text=await file.text();
   const parsed=parseRoster(text);
-  roster=parsed; localStorage.setItem('atlas-roster',JSON.stringify(roster));
+  roster=parsed; localStorage.setItem('atlas-roster',JSON.stringify(roster)); $('#send-roster').disabled=!parsed.length;
   $('#roster-status').innerHTML=parsed.length?`<strong>${parsed.length} alunos identificados.</strong> A coluna “#” será usada para iniciar a prova.`:'Não consegui identificar linhas no arquivo. Use um CSV com as colunas número e nome.';
   if(parsed.length) showToast(`${parsed.length} alunos carregados localmente`);
 }
-populate();render();$('#search-input').oninput=e=>{query=e.target.value.trim();render()};$('#subject-filter').onchange=e=>{subject=e.target.value;render()};$('#grade-filter').onchange=e=>{grade=e.target.value;render()};$('#keyword-filter').onchange=e=>{keyword=e.target.value;render()};$('#clear-filters').onclick=clear;$('#empty-clear').onclick=clear;$('#filter-toggle').onclick=()=>$('#filter-bar').classList.toggle('hidden');$('#sort-button').onclick=()=>{sort=sort==='relevant'?'az':'relevant';$('#sort-button').innerHTML=sort==='az'?'A–Z <span>⌄</span>':'Mais relevantes <span>⌄</span>';render()};$('#dialog-close').onclick=()=>$('#detail-dialog').close();$('#attendance-close').onclick=()=>$('#attendance-dialog').close();$('#attendance-button').onclick=()=>{$('#roster-status').innerHTML=roster.length?`<strong>${roster.length} alunos carregados.</strong> Selecione outro arquivo para substituir a lista.`:'Nenhuma lista carregada nesta sessão.';$('#attendance-dialog').showModal()};$('#roster-file').onchange=e=>e.target.files[0]&&readRosterFile(e.target.files[0]).catch(()=>{$('#roster-status').textContent='Não foi possível ler este arquivo neste dispositivo.'});document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{view=button.dataset.view;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b===button));render()});$('#create-button').onclick=()=>showToast('Editor de avaliação: pronto para conectar ao seu backend');document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search-input').focus()}});
+populate();render();$('#search-input').oninput=e=>{query=e.target.value.trim();render()};$('#subject-filter').onchange=e=>{subject=e.target.value;render()};$('#grade-filter').onchange=e=>{grade=e.target.value;render()};$('#keyword-filter').onchange=e=>{keyword=e.target.value;render()};$('#clear-filters').onclick=clear;$('#empty-clear').onclick=clear;$('#filter-toggle').onclick=()=>$('#filter-bar').classList.toggle('hidden');$('#sort-button').onclick=()=>{sort=sort==='relevant'?'az':'relevant';$('#sort-button').innerHTML=sort==='az'?'A–Z <span>⌄</span>':'Mais relevantes <span>⌄</span>';render()};$('#dialog-close').onclick=()=>$('#detail-dialog').close();$('#attendance-close').onclick=()=>$('#attendance-dialog').close();$('#attendance-button').onclick=()=>{$('#roster-status').innerHTML=roster.length?`<strong>${roster.length} alunos carregados.</strong> Selecione outro arquivo para substituir a lista.`:'Nenhuma lista carregada nesta sessão.';$('#send-roster').disabled=!roster.length;$('#attendance-dialog').showModal()};$('#roster-file').onchange=e=>e.target.files[0]&&readRosterFile(e.target.files[0]).catch(()=>{$('#roster-status').textContent='Não foi possível ler este arquivo neste dispositivo.'});$('#send-roster').onclick=async()=>{const response=await fetch('/api/roster',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({roster})});const result=await response.json();showToast(result.ok?`${result.count} alunos enviados ao servidor local`:'Servidor local indisponível');};document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{view=button.dataset.view;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b===button));render()});$('#create-button').onclick=()=>showToast('Editor de avaliação: pronto para conectar ao seu backend');document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search-input').focus()}});
