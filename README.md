@@ -266,6 +266,8 @@ O asterisco não aparece para o aluno. Ele é usado somente como gabarito. A col
 
 O painel consulta o notebook, não a Internet. Portanto, o professor pode visualizar a evolução mesmo com o cabo de Internet desligado, desde que o tablet/notebook esteja na mesma rede Wi-Fi local dos Chromebooks.
 
+Antes de usar em uma avaliação oficial, consulte o [relatório de auditoria](./AUDIT.md), que registra bugs encontrados, riscos de segurança, correções aplicadas e funcionalidades priorizadas.
+
 O CSV pode ser aberto no Excel, LibreOffice Calc ou Google Sheets depois que a Internet voltar.
 
 ## 11. Teste obrigatório antes da primeira aula

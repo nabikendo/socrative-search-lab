@@ -26,8 +26,9 @@ function clear(){query='';subject='all';grade='all';keyword='all';$('#search-inp
 function parseRoster(text){
   const rows=[];
   for(const raw of text.split(/\r?\n/)){
-    const line=raw.replace(/\s+/g,' ').trim();
-    const match=line.match(/^(\d{1,3})\s+(.+?)(?:\s+[*FJ]\s*\d*\s*\d*)?$/i);
+    const line=raw.replace(/^\uFEFF/,'').trim();
+    const delimited=line.match(/^(\d{1,3})\s*[;,\t]\s*"?(.+?)"?\s*$/);
+    const match=delimited||line.replace(/\s+/g,' ').match(/^(\d{1,3})\s+(.+?)(?:\s+[*FJ]\s*\d*\s*\d*)?$/i);
     if(match && !/estudante|presença|faltas|diário|governo|secretaria/i.test(match[2])) rows.push({number:match[1],name:match[2].trim()});
   }
   return [...new Map(rows.map(row=>[row.number,row])).values()];

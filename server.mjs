@@ -37,6 +37,7 @@ function sendFile(req,res,pathname){ let rel=pathname==='/'?'index.html':pathnam
 async function api(req,res,url){
   if(req.method==='GET'&&url.pathname==='/api/health') return json(res,200,{ok:true,updatedAt:db.updatedAt,rosterCount:db.roster.length});
   if(req.method==='GET'&&url.pathname==='/api/state') return json(res,200,{roster:db.roster,exams:db.exams.map(publicExam),sessions:db.sessions,updatedAt:db.updatedAt});
+  if(req.method==='GET'&&url.pathname==='/api/open-exam') return json(res,200,{exam:publicExam(db.exams.find(item=>item.status==='open')||null)});
   if(req.method==='GET'&&url.pathname==='/api/teacher/results'){
     return json(res,200,{updatedAt:db.updatedAt,results:db.sessions.map(session=>{
       const exam=db.exams.find(item=>item.id===session.examId); const student=db.roster.find(item=>String(item.number)===String(session.number));
