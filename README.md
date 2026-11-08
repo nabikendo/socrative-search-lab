@@ -18,6 +18,7 @@ O Atlas é um sistema web open source para aplicar provas em uma rede local, sem
 - bloqueia a sessão depois do envio;
 - mostra sessões recebidas no painel do professor;
 - exporta resultados em CSV;
+- exporta uma planilha detalhada com uma linha por aluno, respostas por questão e nota automática quando existe gabarito;
 - é responsivo para notebook, tablet e Chromebook.
 
 O painel usa cards grandes, grade responsiva, cantos arredondados e espaçamento confortável, inspirado em padrões de interfaces móveis modernas. A referência é somente estética e de usabilidade; não há código ou identidade visual copiados da Apple.
@@ -252,6 +253,16 @@ No painel `/professor`:
 - `em andamento` significa que o aluno ainda está respondendo;
 - `enviada` significa que a prova foi finalizada;
 - clique em **Baixar CSV** para baixar a lista de sessões e horários.
+
+Para a planilha final, clique em **Baixar respostas e notas**. Ela contém uma linha por aluno e colunas para número, nome, prova, status, início, envio, nota, máximo e cada questão. Abra o arquivo no Excel, LibreOffice Calc ou importe-o no Google Sheets.
+
+Para calcular notas automaticamente em questões objetivas, marque a alternativa correta com `*` no editor de perguntas. Exemplo:
+
+```text
+Qual partícula possui carga negativa? | Próton | Nêutron | *Elétron
+```
+
+O asterisco não aparece para o aluno. Ele é usado somente como gabarito. A coluna `nota` fica vazia para questões que não possuem gabarito, como respostas discursivas.
 
 O painel consulta o notebook, não a Internet. Portanto, o professor pode visualizar a evolução mesmo com o cabo de Internet desligado, desde que o tablet/notebook esteja na mesma rede Wi-Fi local dos Chromebooks.
 
