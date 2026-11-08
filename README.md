@@ -11,6 +11,7 @@ O Atlas é um sistema web open source para aplicar provas em uma rede local, sem
 - permite importar uma lista de frequência em PDF, CSV ou TXT pela página principal;
 - usa o número da coluna `#` para localizar o nome do aluno;
 - permite criar uma prova pelo painel do professor;
+- permite anexar uma prova pronta em PDF ou DOCX, preservando texto e figuras para visualização;
 - abre a prova para os alunos;
 - salva respostas no servidor local a cada alteração;
 - permite retomar uma sessão ainda não enviada;
@@ -18,6 +19,8 @@ O Atlas é um sistema web open source para aplicar provas em uma rede local, sem
 - mostra sessões recebidas no painel do professor;
 - exporta resultados em CSV;
 - é responsivo para notebook, tablet e Chromebook.
+
+O painel usa cards grandes, grade responsiva, cantos arredondados e espaçamento confortável, inspirado em padrões de interfaces móveis modernas. A referência é somente estética e de usabilidade; não há código ou identidade visual copiados da Apple.
 
 Os dados ficam no arquivo local `data/atlas-data.json`. Essa solução é adequada para um primeiro piloto. Antes de usar em uma avaliação oficial, faça testes com a rede e mantenha uma cópia de segurança desse arquivo.
 
@@ -219,6 +222,12 @@ Escreva uma palavra associada à tabela periódica.
 7. Clique em **Salvar prova**.
 8. Clique em **Abrir prova para alunos**.
 9. Confirme a mensagem **Prova aberta**.
+
+### Anexar uma prova em PDF ou DOCX
+
+No painel, use **Adicionar PDF ou DOCX**. Prefira PDF quando o layout e as figuras precisarem permanecer exatamente como foram diagramados. Use DOCX quando quiser uma prévia HTML adaptável ao tamanho da tela. As imagens incorporadas no DOCX são convertidas para a prévia.
+
+O arquivo é enviado somente ao servidor local do notebook. Durante a prova, o Chromebook visualiza o documento pela rede Wi-Fi local. Não é necessário instalar Word, leitor de PDF ou qualquer extensão nos Chromebooks.
 
 ## 9. Fluxo do aluno
 
