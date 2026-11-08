@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import crypto from 'node:crypto';
+import Database from 'better-sqlite3';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -13,6 +14,7 @@ const dataDir = path.join(root, 'data');
 const documentDir = path.join(dataDir, 'documents');
 const backupDir = path.join(dataDir, 'backups');
 const dataFile = path.join(dataDir, 'atlas-data.json');
+const sqliteFile = path.join(dataDir, 'atlas.sqlite');
 const port = Number(process.env.PORT || 8080);
 fs.mkdirSync(documentDir, { recursive: true }); fs.mkdirSync(backupDir, { recursive: true });
 const defaultExam = { id: 'demo', title: 'Química — revisão de ligações', status: 'draft', questions: [
@@ -21,12 +23,20 @@ const defaultExam = { id: 'demo', title: 'Química — revisão de ligações', 
   { id: 'q3', type: 'short', text: 'Escreva uma palavra que associe à tabela periódica.' }
 ] };
 const initial = { roster: [], exams: [defaultExam], sessions: [], answers: {}, grades: {}, documents: {}, updatedAt: new Date().toISOString() };
-let db = fs.existsSync(dataFile) ? JSON.parse(fs.readFileSync(dataFile, 'utf8')) : initial;
+const sqlite = new Database(sqliteFile); sqlite.pragma('journal_mode = WAL'); sqlite.exec('CREATE TABLE IF NOT EXISTS atlas_state (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL, updated_at TEXT NOT NULL)');
+const stored=sqlite.prepare('SELECT payload FROM atlas_state WHERE id=1').get();
+let db = stored ? JSON.parse(stored.payload) : (fs.existsSync(dataFile) ? JSON.parse(fs.readFileSync(dataFile, 'utf8')) : initial);
 db.documents ??= {};
-function save(){ db.updatedAt = new Date().toISOString(); const snapshot=JSON.stringify(db, null, 2); const temp=`${dataFile}.tmp`; fs.writeFileSync(temp,snapshot); if(fs.existsSync(dataFile))fs.copyFileSync(dataFile,path.join(backupDir,`atlas-${Date.now()}.json`)); fs.renameSync(temp,dataFile); }
+db.grades ??= {}; db.sessions ??= []; db.answers ??= {};
+const adminSessions=new Set(); const teacherPin=process.env.ATLAS_PIN||crypto.randomInt(100000,999999).toString();
+function save(){ db.updatedAt = new Date().toISOString(); const snapshot=JSON.stringify(db, null, 2); const temp=`${dataFile}.tmp`; const tx=sqlite.transaction(()=>{sqlite.prepare('INSERT INTO atlas_state(id,payload,updated_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at').run(snapshot,db.updatedAt); fs.writeFileSync(temp,snapshot); if(fs.existsSync(dataFile))fs.copyFileSync(dataFile,path.join(backupDir,`atlas-${Date.now()}.json`)); fs.renameSync(temp,dataFile);}); tx(); }
+if(!stored) save();
 function json(res, status, body){ const text=JSON.stringify(body); res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store'}); res.end(text); }
 function body(req){ return new Promise((resolve,reject)=>{let raw=''; req.on('data',c=>{raw+=c; if(raw.length>40e6){reject(new Error('payload_too_large')); req.destroy();}}); req.on('end',()=>{try{resolve(raw?JSON.parse(raw):{})}catch(e){reject(e)}});}); }
 function csvEscape(v){ const s=String(v??''); return /[",\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s; }
+function cookie(req,name){return (req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`${name}=`))?.slice(name.length+1)}
+function admin(req){return adminSessions.has(cookie(req,'atlas_admin'))}
+function unauthorized(res){return json(res,401,{error:'teacher_auth_required'});}
 function resultsCsv(){ const rows=[['numero','nome','prova','status','inicio','envio','respostas']]; for(const s of db.sessions){ const student=db.roster.find(x=>String(x.number)===String(s.number)); const answerCount=Object.keys(db.answers[s.id]||{}).length; rows.push([s.number,student?.name||'',s.examId,s.status,s.startedAt,s.submittedAt||'',answerCount]); } return rows.map(r=>r.map(csvEscape).join(',')).join('\n')+'\n'; }
 function detailedResultsCsv(){
   const sessions=db.sessions; const questionList=[...new Map(sessions.flatMap(s=>(db.exams.find(e=>e.id===s.examId)?.questions||[]).map(q=>[q.id,q]))).values()];
@@ -38,6 +48,9 @@ function detailedResultsCsv(){
 function publicExam(exam){ return {...exam, document:exam.document ? {...exam.document, html:exam.document.kind==='docx'?db.documents[exam.document.id]?.html:undefined} : undefined}; }
 function sendFile(req,res,pathname){ let rel=pathname==='/'?'index.html':pathname; if(rel==='/professor')rel='/professor.html'; if(rel==='/prova')rel='/prova.html'; const file=path.normalize(path.join(dist,rel)); if(!file.startsWith(dist)||!fs.existsSync(file)||fs.statSync(file).isDirectory()) return json(res,404,{error:'not_found'}); const ext=path.extname(file); const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.mjs':'text/javascript; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'}; res.writeHead(200,{'content-type':types[ext]||'application/octet-stream'}); fs.createReadStream(file).pipe(res); }
 async function api(req,res,url){
+  if(req.method==='POST'&&url.pathname==='/api/auth/login'){const input=await body(req);if(String(input.pin||'')!==teacherPin)return json(res,403,{error:'invalid_pin'});const token=crypto.randomUUID();adminSessions.add(token);res.writeHead(200,{'content-type':'application/json; charset=utf-8','set-cookie':`atlas_admin=${token}; HttpOnly; SameSite=Strict; Path=/`,'cache-control':'no-store'});return res.end(JSON.stringify({ok:true}));}
+  if(req.method==='GET'&&url.pathname==='/api/auth/status')return json(res,200,{authenticated:admin(req)});
+  const adminPath=url.pathname==='/api/state'||url.pathname==='/api/teacher/results'||url.pathname==='/api/roster'||url.pathname==='/api/roster-xlsx'||url.pathname==='/api/exams'||url.pathname==='/api/exam-document'||url.pathname==='/api/grade'||url.pathname==='/api/results.csv'||url.pathname==='/api/results-detailed.csv'||/^\/api\/exams\/[^/]+\/start$/.test(url.pathname); if(adminPath&&!admin(req))return unauthorized(res);
   if(req.method==='GET'&&url.pathname==='/api/health') return json(res,200,{ok:true,updatedAt:db.updatedAt,rosterCount:db.roster.length});
   if(req.method==='GET'&&url.pathname==='/api/state') return json(res,200,{roster:db.roster,exams:db.exams.map(publicExam),sessions:db.sessions,updatedAt:db.updatedAt});
   if(req.method==='GET'&&url.pathname==='/api/open-exam') return json(res,200,{exam:publicExam(db.exams.find(item=>item.status==='open')||null)});
@@ -65,4 +78,4 @@ async function api(req,res,url){
   return json(res,404,{error:'api_not_found'});
 }
 const server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host||'localhost'}`); if(url.pathname.startsWith('/api/'))return await api(req,res,url); sendFile(req,res,url.pathname)}catch(error){console.error(error);json(res,500,{error:'server_error',message:error.message})}});
-server.listen(port,'0.0.0.0',()=>{console.log(`Atlas local ativo em http://localhost:${port}`);for(const item of Object.values(os.networkInterfaces()).flat().filter(x=>x?.family==='IPv4'&&!x.internal))console.log(`Na rede: http://${item.address}:${port}`);console.log('Professor: /professor | Alunos: /prova');});
+server.listen(port,'0.0.0.0',()=>{console.log(`Atlas local ativo em http://localhost:${port}`);for(const item of Object.values(os.networkInterfaces()).flat().filter(x=>x?.family==='IPv4'&&!x.internal))console.log(`Na rede: http://${item.address}:${port}`);console.log('Professor: /professor | Alunos: /prova');console.log(`PIN do professor: ${teacherPin}`);});

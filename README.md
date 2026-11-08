@@ -292,23 +292,32 @@ Faça este teste com Internet desligada:
 
 Não use nomes reais nesse primeiro teste.
 
-## Segurança e limitações
+## Fase 1 — segurança, PIN e SQLite
 
-Esta primeira versão foi desenhada para uma rede local controlada. Ela não possui login de professor, criptografia de ponta a ponta, correção automática ou sincronização com a nuvem. Qualquer pessoa conectada à rede que descubra o endereço pode tentar abrir as páginas.
+Ao executar `npm run server`, o terminal mostra uma linha como:
 
-Para uma avaliação oficial, recomenda-se adicionar depois:
+```text
+PIN do professor: 482913
+```
 
-- código da turma e código da prova;
-- autenticação do professor;
-- HTTPS local ou rede isolada;
-- banco SQLite em vez do JSON;
-- correção automática por gabarito;
-- backup automático em pendrive;
-- sincronização posterior com a Internet;
-- logs de auditoria;
-- modo de recuperação quando o notebook reiniciar.
+Abra `/professor` e informe esse PIN para liberar o painel. Para definir um PIN fixo antes da aula:
 
-Mantenha o arquivo `data/atlas-data.json` em uma cópia de segurança após cada aula. Nunca publique esse arquivo no GitHub, porque ele pode conter nomes e respostas.
+```bash
+ATLAS_PIN=482913 npm run server
+```
+
+No PowerShell:
+
+```powershell
+$env:ATLAS_PIN="482913"
+npm run server
+```
+
+O painel administrativo exige a sessão autenticada para cadastrar frequência, criar/abrir provas, enviar documentos, corrigir notas e baixar resultados. A página `/prova` continua acessível aos alunos, mas respostas, heartbeat e envio exigem o token individual gerado ao iniciar a sessão.
+
+O estado principal agora é salvo em `data/atlas.sqlite` com journal transacional. O arquivo `data/atlas-data.json` continua sendo mantido para compatibilidade e as versões anteriores ficam em `data/backups/`. Não apague a pasta `data` durante uma aula e nunca publique esses arquivos no GitHub.
+
+Ainda faltam para uma avaliação oficial: fila offline no Chromebook, restauração de backup pela interface, HTTPS local, autorização por turma, logs de auditoria completos, sanitização de HTML e sincronização posterior com a Internet.
 
 ## Endereços rápidos
 
