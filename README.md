@@ -270,6 +270,8 @@ Antes de usar em uma avaliação oficial, consulte o [relatório de auditoria](.
 
 Consulte também o [guia das implementações prioritárias](./PRIORITY-IMPLEMENTATION.md) para usar XLSX, pesos, correção manual, várias provas e o alerta de desconexão.
 
+O plano para adicionar todas as recomendações, com fases e critérios de aceite, está no [ROADMAP.md](./ROADMAP.md). A versão atual ainda é um MVP e não deve ser apresentada como sistema de avaliação oficial antes da Fase 1 e da Fase 2.
+
 O CSV pode ser aberto no Excel, LibreOffice Calc ou Google Sheets depois que a Internet voltar.
 
 ## 11. Teste obrigatório antes da primeira aula
