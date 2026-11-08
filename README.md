@@ -20,3 +20,7 @@ npm run build
 A busca procura em título, assunto, descrição, palavras-chave e conteúdo. Filtros podem ser combinados por assunto, série e palavra-chave. O protótipo também demonstra ordenação, favoritos, detalhes, cópia para biblioteca, estado vazio e atalho de teclado.
 
 As evidências e as fontes da investigação estão em [EVIDENCE.md](./EVIDENCE.md).
+
+## Tablet e frequência
+
+O protótipo também tem uma ação **Lista de frequência** que aceita PDF, CSV ou TXT. Ela lê localmente a coluna `#` e o nome do estudante, um formato compatível com o diário de classe fornecido, sem enviar os dados para a Internet. A proposta de uso com roteador e servidor local está documentada em [TABLET-OFFLINE.md](./TABLET-OFFLINE.md).

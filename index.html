@@ -25,7 +25,7 @@
       </aside>
 
       <main class="content">
-        <header class="topbar"><div><p class="eyebrow">BIBLIOTECA DE AVALIAÇÕES</p><h1 id="page-title">Descobrir avaliações</h1></div><button class="primary-button" id="create-button"><span>＋</span> Criar avaliação</button></header>
+        <header class="topbar"><div><p class="eyebrow">BIBLIOTECA DE AVALIAÇÕES</p><h1 id="page-title">Descobrir avaliações</h1></div><div class="topbar-actions"><button class="secondary-button" id="attendance-button">▤ Lista de frequência</button><button class="primary-button" id="create-button"><span>＋</span> Criar avaliação</button></div></header>
         <section class="hero-card">
           <div class="hero-copy"><span class="pill">CATÁLOGO ABERTO</span><h2>Uma boa pergunta<br /><em>abre espaço para pensar.</em></h2><p>Pesquise por título, assunto ou conteúdo. Use os filtros para encontrar algo que combine com a sua turma.</p></div>
           <div class="hero-graphic" aria-hidden="true"><div class="orb orb-one"></div><div class="orb orb-two"></div><div class="hero-lines">✦<br /><span>↗</span></div></div>
@@ -42,6 +42,7 @@
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <dialog id="detail-dialog"><button class="dialog-close" id="dialog-close" aria-label="Fechar">×</button><div id="dialog-content"></div></dialog>
+    <dialog id="attendance-dialog"><button class="dialog-close" id="attendance-close" aria-label="Fechar">×</button><div class="dialog-content"><span class="pill">MODO TABLET</span><h2>Importar lista de frequência</h2><p>Escolha o PDF do diário de classe ou um CSV exportado pela escola. O arquivo é lido neste dispositivo e não é enviado para a Internet.</p><label class="file-drop"><span>＋</span><strong>Selecionar arquivo</strong><small>PDF, CSV ou TXT · funciona na rede local</small><input id="roster-file" type="file" accept=".pdf,.csv,.txt,text/csv,text/plain,application/pdf" /></label><div class="roster-status" id="roster-status">Nenhuma lista carregada nesta sessão.</div><div class="tablet-hint"><strong>Identificação durante a prova</strong><span>O aluno informa o número da coluna “#”. O sistema mostra o nome correspondente antes de começar.</span></div></div></dialog>
     <script type="module" src="./src/app.js"></script>
   </body>
 </html>

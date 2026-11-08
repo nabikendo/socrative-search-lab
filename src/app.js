@@ -1,3 +1,7 @@
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
+
 const seed = [
   {id:1,title:'Frações na vida real',subject:'Matemática',grade:'6º ano',keywords:['frações','cotidiano','prática'],questions:12,time:'8 min',author:'Camila N.',description:'Uma sequência curta para reconhecer, comparar e operar frações em situações do dia a dia.',content:'frações equivalentes numerador denominador pizza receita'},
   {id:2,title:'Ecossistemas em equilíbrio',subject:'Ciências',grade:'7º ano',keywords:['ecologia','sistemas','revisão'],questions:15,time:'12 min',author:'Rafael M.',description:'Investigue relações entre seres vivos, ambiente e os ciclos que sustentam a vida.',content:'cadeia alimentar bioma produtores consumidores energia'},
@@ -9,6 +13,7 @@ const seed = [
   {id:8,title:'Porcentagem no orçamento',subject:'Matemática',grade:'8º ano',keywords:['porcentagem','finanças','cotidiano'],questions:16,time:'13 min',author:'Camila N.',description:'Resolva problemas de desconto, aumento e planejamento com porcentagens.',content:'porcentagem desconto juros orçamento razão'}
 ];
 let view='discover'; let query=''; let subject='all'; let grade='all'; let keyword='all'; let sort='relevant'; const saved=new Set(); const copied=new Set();
+let roster = JSON.parse(localStorage.getItem('atlas-roster') || '[]');
 const $=s=>document.querySelector(s); const normalize=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 function populate(){for(const [id,values] of [['subject-filter',[...new Set(seed.map(x=>x.subject))]],['grade-filter',[...new Set(seed.map(x=>x.grade))]],['keyword-filter',[...new Set(seed.flatMap(x=>x.keywords))]]]){const el=$('#'+id); values.sort().forEach(value=>el.insertAdjacentHTML('beforeend',`<option value="${value}">${value}</option>`));}}
 function score(item){const q=normalize(query);if(!q)return 0;return [item.title,item.subject,item.description,item.content,item.keywords.join(' ')].reduce((n,field)=>n+(normalize(field).includes(q)?(normalize(item.title)===q?5:1):0),0)}
@@ -18,4 +23,29 @@ function render(){const items=filtered();$('#result-count').textContent=items.le
 function openDetail(id){const item=seed.find(x=>x.id===id);$('#dialog-content').innerHTML=`<span class="subject-tag">${item.subject}</span><h2>${item.title}</h2><p>${item.description}</p><div class="dialog-details"><span>${item.grade}</span><span>${item.questions} questões</span><span>${item.time}</span>${item.keywords.map(k=>`<span>#${k}</span>`).join('')}</div><button class="primary-button" id="copy-button">${copied.has(id)?'Já está na minha biblioteca':'Copiar para minha biblioteca'}</button>`;$('#detail-dialog').showModal();$('#copy-button').onclick=()=>{copied.add(id);showToast('Avaliação copiada para sua biblioteca');$('#detail-dialog').close();render();};}
 function showToast(text){const t=$('#toast');t.textContent=text;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)}
 function clear(){query='';subject='all';grade='all';keyword='all';$('#search-input').value='';$('#subject-filter').value='all';$('#grade-filter').value='all';$('#keyword-filter').value='all';render();}
-populate();render();$('#search-input').oninput=e=>{query=e.target.value.trim();render()};$('#subject-filter').onchange=e=>{subject=e.target.value;render()};$('#grade-filter').onchange=e=>{grade=e.target.value;render()};$('#keyword-filter').onchange=e=>{keyword=e.target.value;render()};$('#clear-filters').onclick=clear;$('#empty-clear').onclick=clear;$('#filter-toggle').onclick=()=>$('#filter-bar').classList.toggle('hidden');$('#sort-button').onclick=()=>{sort=sort==='relevant'?'az':'relevant';$('#sort-button').innerHTML=sort==='az'?'A–Z <span>⌄</span>':'Mais relevantes <span>⌄</span>';render()};$('#dialog-close').onclick=()=>$('#detail-dialog').close();document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{view=button.dataset.view;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b===button));render()});$('#create-button').onclick=()=>showToast('Editor de avaliação: pronto para conectar ao seu backend');document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search-input').focus()}});
+function parseRoster(text){
+  const rows=[];
+  for(const raw of text.split(/\r?\n/)){
+    const line=raw.replace(/\s+/g,' ').trim();
+    const match=line.match(/^(\d{1,3})\s+([A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ][A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ .'-]{4,})$/i);
+    if(match && !/estudante|presença|faltas|diário|governo|secretaria/i.test(match[2])) rows.push({number:match[1],name:match[2].trim()});
+  }
+  return [...new Map(rows.map(row=>[row.number,row])).values()];
+}
+async function readRosterFile(file){
+  let text='';
+  if(file.type==='application/pdf' || file.name.toLowerCase().endsWith('.pdf')){
+    const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+    const pages=[];
+    for(let pageNumber=1;pageNumber<=pdf.numPages;pageNumber++){
+      const page=await pdf.getPage(pageNumber); const content=await page.getTextContent();
+      pages.push(content.items.map(item=>item.str).join(' '));
+    }
+    text=pages.join('\n');
+  }else text=await file.text();
+  const parsed=parseRoster(text);
+  roster=parsed; localStorage.setItem('atlas-roster',JSON.stringify(roster));
+  $('#roster-status').innerHTML=parsed.length?`<strong>${parsed.length} alunos identificados.</strong> A coluna “#” será usada para iniciar a prova.`:'Não consegui identificar linhas no arquivo. Use um CSV com as colunas número e nome.';
+  if(parsed.length) showToast(`${parsed.length} alunos carregados localmente`);
+}
+populate();render();$('#search-input').oninput=e=>{query=e.target.value.trim();render()};$('#subject-filter').onchange=e=>{subject=e.target.value;render()};$('#grade-filter').onchange=e=>{grade=e.target.value;render()};$('#keyword-filter').onchange=e=>{keyword=e.target.value;render()};$('#clear-filters').onclick=clear;$('#empty-clear').onclick=clear;$('#filter-toggle').onclick=()=>$('#filter-bar').classList.toggle('hidden');$('#sort-button').onclick=()=>{sort=sort==='relevant'?'az':'relevant';$('#sort-button').innerHTML=sort==='az'?'A–Z <span>⌄</span>':'Mais relevantes <span>⌄</span>';render()};$('#dialog-close').onclick=()=>$('#detail-dialog').close();$('#attendance-close').onclick=()=>$('#attendance-dialog').close();$('#attendance-button').onclick=()=>{$('#roster-status').innerHTML=roster.length?`<strong>${roster.length} alunos carregados.</strong> Selecione outro arquivo para substituir a lista.`:'Nenhuma lista carregada nesta sessão.';$('#attendance-dialog').showModal()};$('#roster-file').onchange=e=>e.target.files[0]&&readRosterFile(e.target.files[0]).catch(()=>{$('#roster-status').textContent='Não foi possível ler este arquivo neste dispositivo.'});document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{view=button.dataset.view;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b===button));render()});$('#create-button').onclick=()=>showToast('Editor de avaliação: pronto para conectar ao seu backend');document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search-input').focus()}});
