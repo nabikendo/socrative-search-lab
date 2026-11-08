@@ -246,11 +246,14 @@ Depois do envio, a sessão fica bloqueada para evitar alterações posteriores.
 
 No painel `/professor`:
 
-- clique em **Atualizar** para consultar as sessões;
+- clique em **Atualizar** para consultar as sessões imediatamente;
 - os resultados também são atualizados automaticamente a cada 5 segundos;
-- `active` significa que o aluno ainda está respondendo;
-- `submitted` significa que a prova foi enviada;
+- abra o card de cada aluno para ver o nome, número, quantidade `respondidas/total` e cada resposta registrada;
+- `em andamento` significa que o aluno ainda está respondendo;
+- `enviada` significa que a prova foi finalizada;
 - clique em **Baixar CSV** para baixar a lista de sessões e horários.
+
+O painel consulta o notebook, não a Internet. Portanto, o professor pode visualizar a evolução mesmo com o cabo de Internet desligado, desde que o tablet/notebook esteja na mesma rede Wi-Fi local dos Chromebooks.
 
 O CSV pode ser aberto no Excel, LibreOffice Calc ou Google Sheets depois que a Internet voltar.
 
