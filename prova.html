@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Atlas — Prova</title>
+    <link rel="stylesheet" href="/src/styles/base.css" />
+    <link rel="stylesheet" href="/src/styles/prova.css" />
+  </head>
+  <body>
+    <!-- 1. entrada -->
+    <main id="join" class="center-screen" hidden>
+      <form id="join-form" class="stack" style="width: min(420px, 100%)" autocomplete="off">
+        <div class="stack-s">
+          <h1 class="title-m">Pronto para começar?</h1>
+          <p id="join-status" class="lead" style="font-size: 17px">Verificando…</p>
+        </div>
+        <label class="field"><span>Código da prova</span><input id="code" class="code-input" inputmode="numeric" maxlength="4" placeholder="0000" required /></label>
+        <label class="field"><span>Seu número na lista de frequência</span><input id="number" class="num-input" inputmode="numeric" maxlength="3" placeholder="0" required /></label>
+        <p id="join-error" class="error" role="alert"></p>
+        <button id="join-button" class="btn big block" type="submit" disabled>Continuar</button>
+      </form>
+    </main>
+
+    <!-- 2. confirmação do nome -->
+    <main id="confirm" class="center-screen" hidden>
+      <div class="stack" style="width: min(420px, 100%)">
+        <p class="eyebrow">Confirme</p>
+        <h1 class="title-m">Você é <span id="confirm-name"></span>?</h1>
+        <p id="confirm-error" class="error" role="alert"></p>
+        <div class="stack-s" style="width: 100%">
+          <button id="confirm-yes" class="btn big block" type="button">Sim, sou eu</button>
+          <button id="confirm-no" class="btn big block secondary" type="button">Voltar</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- 3. prova -->
+    <div id="exam" hidden>
+      <header class="topbar">
+        <div class="topbar-inner">
+          <span class="brand">Atlas</span>
+          <span id="student" class="caption grow"></span>
+          <span id="save-state" class="save-state ok" role="status" aria-live="polite"><span class="dot"></span><span id="save-label">Tudo salvo</span></span>
+        </div>
+      </header>
+      <main class="page">
+        <div class="stack">
+          <div class="stack-s">
+            <h1 id="exam-title" class="title-m"></h1>
+            <div class="progress" aria-hidden="true"><div id="progress-bar"></div></div>
+          </div>
+          <div id="banner" class="notice warn" role="alert" hidden></div>
+          <section id="document" hidden></section>
+          <form id="questions" class="stack" onsubmit="return false"></form>
+          <button id="submit" class="btn big block" type="button">Enviar prova</button>
+        </div>
+      </main>
+    </div>
+
+    <!-- 4. final -->
+    <main id="done" class="center-screen" hidden>
+      <div class="stack">
+        <div class="check" aria-hidden="true">✓</div>
+        <h1 class="title-m">Prova enviada</h1>
+        <p class="lead" style="font-size: 17px">Suas respostas foram recebidas. Você já pode fechar esta página.</p>
+      </div>
+    </main>
+
+    <dialog id="submit-dialog">
+      <div class="stack-s">
+        <h2 class="headline">Enviar a prova agora?</h2>
+        <p id="submit-summary" class="sub" style="color: var(--text-2)"></p>
+        <p id="submit-error" class="error" role="alert"></p>
+        <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <button id="submit-cancel" class="btn secondary" type="button">Voltar</button>
+          <button id="submit-confirm" class="btn" type="button">Enviar</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script type="module" src="/src/prova.js"></script>
+  </body>
+</html>

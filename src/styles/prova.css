@@ -1,0 +1,10 @@
+.q-block { display: grid; gap: 12px; }
+.q-block .q-title { font-size: 19px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.q-block .q-index { font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
+.status-pill { position: sticky; top: 56px; z-index: 5; }
+.save-state { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); }
+.save-state.pending { color: var(--warn); }
+.save-state.ok .dot { background: var(--ok); }
+.progress { height: 4px; border-radius: 2px; background: var(--fill); overflow: hidden; }
+.progress > div { height: 100%; background: var(--accent); width: 0; transition: width 0.25s; }
+.check { font-size: 56px; color: var(--ok); line-height: 1; }

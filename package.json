@@ -1,22 +1,25 @@
 {
-  "name": "socrative-search-lab",
-  "version": "0.2.0",
+  "name": "atlas-provas",
+  "version": "1.0.0",
   "private": true,
-  "description": "Atlas: biblioteca e MVP de provas para rede local.",
+  "type": "module",
+  "description": "Atlas: provas em rede local, sem Internet durante a aula.",
+  "engines": { "node": ">=22.13" },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0",
-    "server": "npm run build && node server.mjs",
-    "start": "npm run server"
+    "start": "npm run build && node --disable-warning=ExperimentalWarning server.mjs",
+    "serve": "node --disable-warning=ExperimentalWarning server.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },
   "devDependencies": {
     "vite": "^6.1.0"
   },
   "dependencies": {
-    "pdfjs-dist": "5.4.149",
     "mammoth": "^1.9.1",
-    "xlsx": "^0.18.5",
-    "better-sqlite3": "^11.10.0"
+    "pdfjs-dist": "5.4.149",
+    "qrcode-generator": "^2.0.4",
+    "read-excel-file": "^9.3.14",
+    "sanitize-html": "^2.17.0"
   }
 }

@@ -2,80 +2,366 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-import mammoth from 'mammoth';
-import * as XLSX from 'xlsx';
 import crypto from 'node:crypto';
-import Database from 'better-sqlite3';
+import { fileURLToPath } from 'node:url';
+import { readSheet } from 'read-excel-file/node';
+import { openStore } from './lib/store.mjs';
+import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs';
+import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
+import { parseRosterRows } from './shared/roster.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
-const dataDir = path.join(root, 'data');
-const documentDir = path.join(dataDir, 'documents');
-const backupDir = path.join(dataDir, 'backups');
-const dataFile = path.join(dataDir, 'atlas-data.json');
-const sqliteFile = path.join(dataDir, 'atlas.sqlite');
-const port = Number(process.env.PORT || 8080);
-fs.mkdirSync(documentDir, { recursive: true }); fs.mkdirSync(backupDir, { recursive: true });
-const defaultExam = { id: 'demo', title: 'Química — revisão de ligações', status: 'draft', questions: [
-  { id: 'q1', type: 'choice', text: 'Qual ligação ocorre pelo compartilhamento de elétrons?', options: ['Iônica', 'Covalente', 'Metálica', 'Nuclear'] },
-  { id: 'q2', type: 'choice', text: 'Qual partícula possui carga negativa?', options: ['Próton', 'Nêutron', 'Elétron', 'Íon positivo'] },
-  { id: 'q3', type: 'short', text: 'Escreva uma palavra que associe à tabela periódica.' }
-] };
-const initial = { roster: [], exams: [defaultExam], sessions: [], answers: {}, grades: {}, documents: {}, updatedAt: new Date().toISOString() };
-const sqlite = new Database(sqliteFile); sqlite.pragma('journal_mode = WAL'); sqlite.exec('CREATE TABLE IF NOT EXISTS atlas_state (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL, updated_at TEXT NOT NULL)');
-const stored=sqlite.prepare('SELECT payload FROM atlas_state WHERE id=1').get();
-let db = stored ? JSON.parse(stored.payload) : (fs.existsSync(dataFile) ? JSON.parse(fs.readFileSync(dataFile, 'utf8')) : initial);
-db.documents ??= {};
-db.grades ??= {}; db.sessions ??= []; db.answers ??= {};
-const adminSessions=new Set(); const teacherPin=process.env.ATLAS_PIN||crypto.randomInt(100000,999999).toString();
-function save(){ db.updatedAt = new Date().toISOString(); const snapshot=JSON.stringify(db, null, 2); const temp=`${dataFile}.tmp`; const tx=sqlite.transaction(()=>{sqlite.prepare('INSERT INTO atlas_state(id,payload,updated_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at').run(snapshot,db.updatedAt); fs.writeFileSync(temp,snapshot); if(fs.existsSync(dataFile))fs.copyFileSync(dataFile,path.join(backupDir,`atlas-${Date.now()}.json`)); fs.renameSync(temp,dataFile);}); tx(); }
-if(!stored) save();
-function json(res, status, body){ const text=JSON.stringify(body); res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store'}); res.end(text); }
-function body(req){ return new Promise((resolve,reject)=>{let raw=''; req.on('data',c=>{raw+=c; if(raw.length>40e6){reject(new Error('payload_too_large')); req.destroy();}}); req.on('end',()=>{try{resolve(raw?JSON.parse(raw):{})}catch(e){reject(e)}});}); }
-function csvEscape(v){ const s=String(v??''); return /[",\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s; }
-function cookie(req,name){return (req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`${name}=`))?.slice(name.length+1)}
-function admin(req){return adminSessions.has(cookie(req,'atlas_admin'))}
-function unauthorized(res){return json(res,401,{error:'teacher_auth_required'});}
-function resultsCsv(){ const rows=[['numero','nome','prova','status','inicio','envio','respostas']]; for(const s of db.sessions){ const student=db.roster.find(x=>String(x.number)===String(s.number)); const answerCount=Object.keys(db.answers[s.id]||{}).length; rows.push([s.number,student?.name||'',s.examId,s.status,s.startedAt,s.submittedAt||'',answerCount]); } return rows.map(r=>r.map(csvEscape).join(',')).join('\n')+'\n'; }
-function detailedResultsCsv(){
-  const sessions=db.sessions; const questionList=[...new Map(sessions.flatMap(s=>(db.exams.find(e=>e.id===s.examId)?.questions||[]).map(q=>[q.id,q]))).values()];
-  const header=['numero','nome','prova','status','inicio','envio','nota','maximo',...questionList.map((q,i)=>`Q${i+1} — ${q.text}`)];
-  const rows=[header];
-  for(const s of sessions){ const student=db.roster.find(x=>String(x.number)===String(s.number)); const exam=db.exams.find(e=>e.id===s.examId); const answers=db.answers[s.id]||{}; const grades=db.grades?.[s.id]||{}; const graded=(exam?.questions||[]).filter(q=>q.correct||q.weight); const max=graded.reduce((sum,q)=>sum+Number(q.weight||1),0); const score=graded.reduce((sum,q)=>sum+(q.correct?(answers[q.id]===q.correct?Number(q.weight||1):0):Number(grades[q.id]||0)),0); rows.push([s.number,student?.name||'',s.examId,s.status,s.startedAt,s.submittedAt||'',graded.length?score:'',graded.length?max:'',...questionList.map(q=>answers[q.id]||'')]); }
-  return rows.map(r=>r.map(csvEscape).join(',')).join('\n')+'\n';
+const ONLINE_MS = 30_000;
+const ADMIN_TTL_MS = 12 * 3600_000;
+
+class HttpError extends Error {
+  constructor(status, code, message) { super(message || code); this.status = status; this.code = code; }
 }
-function publicExam(exam){ return {...exam, document:exam.document ? {...exam.document, html:exam.document.kind==='docx'?db.documents[exam.document.id]?.html:undefined} : undefined}; }
-function sendFile(req,res,pathname){ let rel=pathname==='/'?'index.html':pathname; if(rel==='/professor')rel='/professor.html'; if(rel==='/prova')rel='/prova.html'; const file=path.normalize(path.join(dist,rel)); if(!file.startsWith(dist)||!fs.existsSync(file)||fs.statSync(file).isDirectory()) return json(res,404,{error:'not_found'}); const ext=path.extname(file); const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.mjs':'text/javascript; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'}; res.writeHead(200,{'content-type':types[ext]||'application/octet-stream'}); fs.createReadStream(file).pipe(res); }
-async function api(req,res,url){
-  if(req.method==='POST'&&url.pathname==='/api/auth/login'){const input=await body(req);if(String(input.pin||'')!==teacherPin)return json(res,403,{error:'invalid_pin'});const token=crypto.randomUUID();adminSessions.add(token);res.writeHead(200,{'content-type':'application/json; charset=utf-8','set-cookie':`atlas_admin=${token}; HttpOnly; SameSite=Strict; Path=/`,'cache-control':'no-store'});return res.end(JSON.stringify({ok:true}));}
-  if(req.method==='GET'&&url.pathname==='/api/auth/status')return json(res,200,{authenticated:admin(req)});
-  const adminPath=url.pathname==='/api/state'||url.pathname==='/api/teacher/results'||url.pathname==='/api/roster'||url.pathname==='/api/roster-xlsx'||url.pathname==='/api/exams'||url.pathname==='/api/exam-document'||url.pathname==='/api/grade'||url.pathname==='/api/results.csv'||url.pathname==='/api/results-detailed.csv'||/^\/api\/exams\/[^/]+\/start$/.test(url.pathname); if(adminPath&&!admin(req))return unauthorized(res);
-  if(req.method==='GET'&&url.pathname==='/api/health') return json(res,200,{ok:true,updatedAt:db.updatedAt,rosterCount:db.roster.length});
-  if(req.method==='GET'&&url.pathname==='/api/state') return json(res,200,{roster:db.roster,exams:db.exams.map(publicExam),sessions:db.sessions,updatedAt:db.updatedAt});
-  if(req.method==='GET'&&url.pathname==='/api/open-exam') return json(res,200,{exam:publicExam(db.exams.find(item=>item.status==='open')||null)});
-  if(req.method==='GET'&&url.pathname==='/api/teacher/results'){
-    return json(res,200,{updatedAt:db.updatedAt,results:db.sessions.map(session=>{
-      const exam=db.exams.find(item=>item.id===session.examId); const student=db.roster.find(item=>String(item.number)===String(session.number));
-      const answers=db.answers[session.id]||{};
-      const grades=db.grades?.[session.id]||{}; const online=session.status!=='submitted'&&Date.now()-Number(session.lastSeen||0)<30000;
-      return {...session,studentName:student?.name||'Aluno não encontrado',answerCount:Object.keys(answers).length,totalQuestions:exam?.questions.length||0,answers,grades,online,questions:exam?.questions||[]};
-    })});
+
+export function createApp({ dataDir = path.join(root, 'data'), pin = process.env.ATLAS_PIN || String(crypto.randomInt(100000, 1000000)) } = {}) {
+  const store = openStore(dataDir);
+  const adminSessions = new Map();
+  const lastSeen = new Map(); // batimentos ficam só na memória: não geram escrita em disco
+  const buckets = new Map();
+
+  // ---------- utilidades
+  const same = (a, b) => {
+    const ha = crypto.createHash('sha256').update(String(a)).digest();
+    const hb = crypto.createHash('sha256').update(String(b)).digest();
+    return crypto.timingSafeEqual(ha, hb);
+  };
+  function limit(req, name, max, windowMs = 60_000) {
+    const key = `${name}:${req.socket.remoteAddress}`;
+    const t = Date.now();
+    const b = buckets.get(key);
+    if (!b || b.reset < t) { buckets.set(key, { count: 1, reset: t + windowMs }); return; }
+    if (++b.count > max) throw new HttpError(429, 'too_many_requests', 'Muitas tentativas. Aguarde um minuto.');
   }
-  if(req.method==='POST'&&url.pathname==='/api/roster'){ const input=await body(req); if(!Array.isArray(input.roster)) return json(res,400,{error:'roster_required'}); db.roster=[...new Map(input.roster.map(x=>[String(x.number),{number:String(x.number),name:String(x.name),className:String(x.className||'')}])).values()]; save(); return json(res,200,{ok:true,count:db.roster.length}); }
-  if(req.method==='POST'&&url.pathname==='/api/roster-xlsx'){ const input=await body(req); const rows=XLSX.utils.sheet_to_json(XLSX.read(Buffer.from(String(input.base64||''),'base64'),{type:'buffer'}).Sheets[XLSX.read(Buffer.from(String(input.base64||''),'base64'),{type:'buffer'}).SheetNames[0]],{header:1,defval:''}); const roster=rows.slice(1).map(row=>({number:String(row[0]||'').trim(),name:String(row[1]||'').trim(),className:String(row[2]||'').trim()})).filter(row=>row.number&&row.name); db.roster=[...new Map(roster.map(x=>[x.number,x])).values()]; save(); return json(res,200,{ok:true,count:db.roster.length}); }
-  if(req.method==='POST'&&url.pathname==='/api/exams'){ const input=await body(req); const exam={id:String(input.id||'demo'),title:String(input.title||'Avaliação'),status:'draft',questions:Array.isArray(input.questions)&&input.questions.length?input.questions:defaultExam.questions}; const old=db.exams.find(x=>x.id===exam.id); if(old?.document)exam.document=old.document; const idx=db.exams.findIndex(x=>x.id===exam.id); idx>=0?db.exams[idx]=exam:db.exams.push(exam); save(); return json(res,200,{ok:true,exam:publicExam(exam)}); }
-  if(req.method==='POST'&&url.pathname==='/api/exam-document'){ const input=await body(req); const exam=db.exams.find(x=>x.id===String(input.examId||'demo')); if(!exam)return json(res,404,{error:'exam_not_found'}); const mime=String(input.mime||''); const name=String(input.name||'prova'); const kind=mime.includes('word')||name.toLowerCase().endsWith('.docx')?'docx':'pdf'; const id=`${exam.id}-${Date.now()}`; const buffer=Buffer.from(String(input.base64||''),'base64'); if(buffer.length>30e6)return json(res,413,{error:'document_too_large'}); const filePath=path.join(documentDir,`${id}.${kind}`); fs.writeFileSync(filePath,buffer); const document={id,name,kind,mime,size:buffer.length}; if(kind==='docx'){const converted=await mammoth.convertToHtml({buffer}); document.html=converted.value; document.warnings=converted.messages;} db.documents[id]={...document,filePath}; exam.document=document; save(); return json(res,200,{ok:true,document:{...document,html:kind==='docx'?document.html:undefined}}); }
-  const documentMatch=url.pathname.match(/^\/api\/document\/([^/]+)$/); if(req.method==='GET'&&documentMatch){ const item=db.documents[documentMatch[1]]; if(!item||!fs.existsSync(item.filePath))return json(res,404,{error:'document_not_found'}); res.writeHead(200,{'content-type':item.mime||'application/octet-stream','content-disposition':`inline; filename="${item.name.replaceAll('"','')}"`}); return fs.createReadStream(item.filePath).pipe(res); }
-  const start=url.pathname.match(/^\/api\/exams\/([^/]+)\/start$/); if(req.method==='POST'&&start){ const exam=db.exams.find(x=>x.id===start[1]); if(!exam)return json(res,404,{error:'exam_not_found'}); exam.status='open'; save(); return json(res,200,{ok:true,exam:publicExam(exam)}); }
-  if(req.method==='POST'&&url.pathname==='/api/session/start'){ const input=await body(req); const exam=db.exams.find(x=>x.id===String(input.examId||'demo')); const number=String(input.number||''); const student=db.roster.find(x=>String(x.number)===number); if(!exam||exam.status!=='open')return json(res,409,{error:'exam_not_open'}); if(!student)return json(res,404,{error:'student_not_found'}); let session=db.sessions.find(x=>x.examId===exam.id&&x.number===number&&x.status!=='submitted'); if(!session){session={id:`${exam.id}-${number}-${Date.now()}`,token:crypto.randomUUID(),examId:exam.id,number,status:'active',startedAt:new Date().toISOString(),lastSeen:Date.now()};db.sessions.push(session);save();} return json(res,200,{session,student,exam:publicExam(exam),answers:db.answers[session.id]||{}}); }
-  if(req.method==='POST'&&url.pathname==='/api/session/heartbeat'){ const input=await body(req); const session=db.sessions.find(x=>x.id===String(input.sessionId)&&x.token===String(input.token)); if(!session)return json(res,401,{error:'invalid_session'}); session.lastSeen=Date.now(); save(); return json(res,200,{ok:true}); }
-  if(req.method==='POST'&&url.pathname==='/api/answer'){ const input=await body(req); const session=db.sessions.find(x=>x.id===String(input.sessionId)&&x.token===String(input.token)); if(!session||session.status==='submitted')return json(res,409,{error:'session_closed'}); session.lastSeen=Date.now(); db.answers[session.id]??={}; db.answers[session.id][String(input.questionId)]=String(input.answer??''); save(); return json(res,200,{ok:true,savedAt:db.updatedAt}); }
-  if(req.method==='POST'&&url.pathname==='/api/grade'){ const input=await body(req); const session=db.sessions.find(x=>x.id===String(input.sessionId)); if(!session)return json(res,404,{error:'session_not_found'}); db.grades??={}; db.grades[session.id]??={}; db.grades[session.id][String(input.questionId)]=Number(input.score||0); save(); return json(res,200,{ok:true}); }
-  if(req.method==='POST'&&url.pathname==='/api/session/submit'){ const input=await body(req); const session=db.sessions.find(x=>x.id===String(input.sessionId)&&x.token===String(input.token)); if(!session)return json(res,404,{error:'session_not_found'}); session.status='submitted'; session.submittedAt=new Date().toISOString(); session.lastSeen=Date.now(); save(); return json(res,200,{ok:true,submittedAt:session.submittedAt}); }
-  if(req.method==='GET'&&url.pathname==='/api/results.csv'){ res.writeHead(200,{'content-type':'text/csv; charset=utf-8','content-disposition':'attachment; filename="resultados-atlas.csv"'}); return res.end(resultsCsv()); }
-  if(req.method==='GET'&&url.pathname==='/api/results-detailed.csv'){ res.writeHead(200,{'content-type':'text/csv; charset=utf-8','content-disposition':'attachment; filename="respostas-finais-atlas.csv"'}); return res.end(detailedResultsCsv()); }
-  return json(res,404,{error:'api_not_found'});
+  setInterval(() => { const t = Date.now(); for (const [k, v] of buckets) if (v.reset < t) buckets.delete(k); for (const [k, v] of adminSessions) if (v < t) adminSessions.delete(k); }, 60_000).unref();
+
+  const cookie = (req, name) => (req.headers.cookie || '').split(';').map((c) => c.trim()).find((c) => c.startsWith(`${name}=`))?.slice(name.length + 1);
+  const isAdmin = (req) => { const t = cookie(req, 'atlas_admin'); return !!t && (adminSessions.get(t) ?? 0) > Date.now(); };
+
+  async function readBody(req, maxBytes) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > maxBytes) throw new HttpError(413, 'payload_too_large', 'Arquivo grande demais.');
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+  async function readJson(req) {
+    const raw = await readBody(req, 1_000_000);
+    if (!raw.length) return {};
+    try { return JSON.parse(raw.toString('utf8')); } catch { throw new HttpError(400, 'invalid_json'); }
+  }
+
+  const sendJson = (res, status, body, headers = {}) => {
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
+    res.end(JSON.stringify(body));
+  };
+
+  // ---------- regras
+  const isOnline = (s) => s.status !== 'submitted' && Date.now() - Math.max(s.lastSeen, lastSeen.get(s.id) || 0) < ONLINE_MS;
+  const publicExam = (exam) => ({
+    id: exam.id, title: exam.title,
+    questions: studentQuestions(exam.questions),
+    document: exam.document ? { id: exam.document.id, name: exam.document.name, kind: exam.document.kind, html: exam.document.kind === 'docx' ? store.getDocument(exam.document.id)?.html : undefined } : null,
+  });
+  function openExamWithCode(code) {
+    const exam = store.getOpenExam();
+    if (!exam) throw new HttpError(409, 'exam_closed', 'A prova ainda não está aberta.');
+    if (!same(String(code ?? ''), exam.accessCode)) throw new HttpError(403, 'invalid_code', 'Código incorreto.');
+    return exam;
+  }
+  function studentSession(input) {
+    const session = store.getSession(String(input.sessionId || ''));
+    if (!session || !same(session.token, String(input.token || ''))) throw new HttpError(401, 'invalid_session');
+    return session;
+  }
+  const needExam = (id) => store.getExam(id) ?? (() => { throw new HttpError(404, 'exam_not_found'); })();
+  const needSession = (id) => store.getSession(id) ?? (() => { throw new HttpError(404, 'session_not_found'); })();
+
+  function resultsFor(exam) {
+    const roster = new Map(store.getRoster().map((r) => [r.number, r]));
+    const answers = store.answersForExam(exam.id);
+    const grades = store.gradesForExam(exam.id);
+    return store.listSessions(exam.id).map((s) => {
+      const given = answers[s.id] || {};
+      const result = scoreSession(exam, given, grades[s.id]);
+      return {
+        sessionId: s.id, number: s.number, name: roster.get(s.number)?.name || 'Aluno fora da lista', className: roster.get(s.number)?.className || '',
+        status: s.status, online: isOnline(s), startedAt: s.startedAt, submittedAt: s.submittedAt,
+        answered: Object.values(given).filter(Boolean).length, total: exam.questions.length,
+        score: result.score, max: result.max, pending: result.pending, detail: result.detail, answers: given, grades: grades[s.id] || {},
+      };
+    });
+  }
+
+  const csvCell = (v) => {
+    let s = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // evita execução de fórmulas ao abrir no Excel
+    return /[";\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+  };
+  const decimal = (n) => String(n).replace('.', ',');
+  function examCsv(exam) {
+    const rows = [['numero', 'nome', 'turma', 'status', 'inicio', 'envio', 'nota', 'maximo', 'pendentes', ...exam.questions.map((q, i) => `Q${i + 1} — ${q.text}`)]];
+    for (const r of resultsFor(exam)) {
+      rows.push([r.number, r.name, r.className, r.status === 'submitted' ? 'enviada' : 'em andamento', r.startedAt, r.submittedAt || '', decimal(r.score), decimal(r.max), r.pending, ...exam.questions.map((q) => r.answers[q.id] || '')]);
+    }
+    return '\uFEFF' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
+  }
+
+  function lanUrls(port) {
+    const rank = (ip) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : 2);
+    return Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal)
+      .map((i) => i.address).sort((a, b) => rank(a) - rank(b)).map((ip) => `http://${ip}:${port}`);
+  }
+
+  // ---------- rotas
+  const routes = [];
+  const route = (method, pattern, opts, handler) => {
+    if (typeof opts === 'function') { handler = opts; opts = {}; }
+    const keys = [];
+    const regex = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '$');
+    routes.push({ method, regex, keys, admin: !!opts.admin, handler });
+  };
+
+  // público
+  route('GET', '/api/health', () => ({ ok: true }));
+  route('GET', '/api/open-exam', () => {
+    const exam = store.getOpenExam();
+    return { exam: exam ? { title: exam.title } : null };
+  });
+  route('POST', '/api/identify', async ({ req }) => {
+    limit(req, 'identify', 30);
+    const input = await readJson(req);
+    const exam = openExamWithCode(input.code);
+    const student = store.findStudent(String(input.number ?? '').trim());
+    if (!student) throw new HttpError(404, 'student_not_found', 'Número não encontrado na lista.');
+    return { student: { number: student.number, name: student.name }, exam: { title: exam.title } };
+  });
+  route('POST', '/api/session/start', async ({ req }) => {
+    limit(req, 'start', 30);
+    const input = await readJson(req);
+    const exam = openExamWithCode(input.code);
+    const student = store.findStudent(String(input.number ?? '').trim());
+    if (!student) throw new HttpError(404, 'student_not_found', 'Número não encontrado na lista.');
+
+    let session = store.findSession(exam.id, student.number);
+    if (!session) session = store.createSession(exam.id, student.number);
+    else if (session.status === 'submitted') throw new HttpError(409, 'already_submitted', 'Esta prova já foi enviada. Fale com o professor.');
+    else if (!same(session.token, String(input.token || ''))) {
+      if (isOnline(session)) throw new HttpError(409, 'session_in_use', 'Este número já está em uso em outro aparelho.');
+      session = store.rotateToken(session.id); // aluno trocou de aparelho depois que o anterior ficou inativo
+    }
+    lastSeen.set(session.id, Date.now());
+    return { session: { id: session.id, token: session.token }, student: { number: student.number, name: student.name }, exam: publicExam(exam), answers: store.getAnswers(session.id) };
+  });
+  route('POST', '/api/session/heartbeat', async ({ req }) => {
+    const session = studentSession(await readJson(req));
+    lastSeen.set(session.id, Date.now());
+    const exam = store.getExam(session.examId);
+    return { ok: true, examOpen: exam?.status === 'open', submitted: session.status === 'submitted' };
+  });
+  route('POST', '/api/answer', async ({ req }) => {
+    const input = await readJson(req);
+    const session = studentSession(input);
+    if (session.status === 'submitted') throw new HttpError(409, 'session_closed', 'Prova já enviada.');
+    const exam = store.getExam(session.examId);
+    if (exam.status !== 'open') throw new HttpError(409, 'exam_closed', 'O professor encerrou a prova.');
+    const question = exam.questions.find((x) => x.id === String(input.questionId));
+    if (!question) throw new HttpError(400, 'unknown_question');
+    const answer = String(input.answer ?? '').slice(0, 5000);
+    if (question.type === 'choice' && answer && !question.options.includes(answer)) throw new HttpError(400, 'invalid_answer');
+    store.saveAnswer(session.id, question.id, answer);
+    lastSeen.set(session.id, Date.now());
+    return { ok: true };
+  });
+  route('POST', '/api/session/submit', async ({ req }) => {
+    const session = studentSession(await readJson(req));
+    store.submit(session.id);
+    return { ok: true };
+  });
+  route('GET', '/api/document/:id', ({ req, res, params }) => {
+    const doc = store.getDocument(params.id);
+    const exam = doc && store.getExam(doc.exam_id);
+    if (!doc || doc.kind !== 'pdf' || !(isAdmin(req) || exam?.status === 'open')) throw new HttpError(404, 'document_not_found');
+    const file = path.join(store.documentDir, doc.file);
+    if (!fs.existsSync(file)) throw new HttpError(404, 'document_not_found');
+    res.writeHead(200, { 'content-type': 'application/pdf', 'content-length': fs.statSync(file).size, 'cache-control': 'no-store', 'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(doc.name)}` });
+    fs.createReadStream(file).pipe(res);
+    return null;
+  });
+
+  // autenticação do professor
+  route('POST', '/api/auth/login', async ({ req, res }) => {
+    limit(req, 'login', 8);
+    const input = await readJson(req);
+    if (!same(String(input.pin ?? ''), pin)) throw new HttpError(403, 'invalid_pin', 'PIN incorreto.');
+    const token = crypto.randomBytes(32).toString('hex');
+    adminSessions.set(token, Date.now() + ADMIN_TTL_MS);
+    sendJson(res, 200, { ok: true }, { 'set-cookie': `atlas_admin=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${ADMIN_TTL_MS / 1000}` });
+    return null;
+  });
+  route('POST', '/api/auth/logout', ({ req, res }) => {
+    adminSessions.delete(cookie(req, 'atlas_admin'));
+    sendJson(res, 200, { ok: true }, { 'set-cookie': 'atlas_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
+    return null;
+  });
+  route('GET', '/api/auth/status', ({ req }) => ({ authenticated: isAdmin(req) }));
+
+  // professor
+  route('GET', '/api/network', { admin: true }, ({ req }) => ({ urls: lanUrls(req.socket.localPort) }));
+  route('GET', '/api/roster', { admin: true }, () => ({ roster: store.getRoster() }));
+  route('POST', '/api/roster', { admin: true }, async ({ req }) => {
+    const input = await readJson(req);
+    if (!Array.isArray(input.roster) || !input.roster.length) throw new HttpError(400, 'roster_required', 'A lista está vazia.');
+    const rows = parseRosterRows(input.roster.map((r) => [r.number, r.name, r.className]));
+    if (!rows.length) throw new HttpError(400, 'roster_invalid', 'Nenhum aluno válido na lista.');
+    return { ok: true, count: store.replaceRoster(rows) };
+  });
+  route('POST', '/api/roster/parse-xlsx', { admin: true }, async ({ req }) => {
+    const buffer = await readBody(req, 5_000_000);
+    try { return { roster: parseRosterRows(await readSheet(buffer)) }; }
+    catch { throw new HttpError(422, 'invalid_spreadsheet', 'Não consegui ler esta planilha. Use um arquivo .xlsx.'); }
+  });
+
+  route('GET', '/api/exams', { admin: true }, () => ({ exams: store.listExams().map(({ questions, document, ...e }) => ({ ...e, questionCount: questions.length, document })) }));
+  route('GET', '/api/exams/:id', { admin: true }, ({ params }) => ({ exam: needExam(params.id) }));
+  route('POST', '/api/exams', { admin: true }, async ({ req }) => {
+    const input = await readJson(req);
+    const title = String(input.title ?? '').trim().slice(0, 120);
+    if (!title) throw new HttpError(400, 'title_required', 'Dê um título à prova.');
+    if (input.id) {
+      const current = needExam(String(input.id));
+      if (store.hasSessions(current.id)) {
+        if (JSON.stringify(normalizeQuestions(input.questions)) !== JSON.stringify(current.questions)) throw new HttpError(409, 'exam_has_sessions', 'Já existem respostas. Duplique a prova para alterar as questões.');
+      }
+    }
+    return { ok: true, exam: store.saveExam({ id: input.id ? String(input.id) : null, title, questions: input.questions }) };
+  });
+  route('DELETE', '/api/exams/:id', { admin: true }, ({ params }) => {
+    needExam(params.id);
+    if (store.hasSessions(params.id)) throw new HttpError(409, 'exam_has_sessions', 'Esta prova já tem respostas e não pode ser excluída.');
+    store.deleteExam(params.id);
+    return { ok: true };
+  });
+  route('POST', '/api/exams/:id/open', { admin: true }, ({ params }) => { needExam(params.id); return { ok: true, code: store.openExam(params.id) }; });
+  route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { needExam(params.id); store.closeExam(params.id); return { ok: true }; });
+  route('POST', '/api/exams/:id/document', { admin: true }, async ({ req, url, params }) => {
+    needExam(params.id);
+    const buffer = await readBody(req, MAX_DOCUMENT_BYTES);
+    const kind = detectKind(buffer);
+    if (!kind) throw new HttpError(415, 'unsupported_document', 'Envie um arquivo PDF ou DOCX válido.');
+    const name = (url.searchParams.get('name') || `prova.${kind}`).replace(/[\\/\r\n"]/g, '_').slice(0, 120);
+    let html;
+    if (kind === 'docx') {
+      try { html = await convertDocx(buffer); } catch { throw new HttpError(422, 'invalid_document', 'Não consegui ler este DOCX.'); }
+    }
+    const file = `${crypto.randomBytes(16).toString('hex')}.${kind}`;
+    fs.writeFileSync(path.join(store.documentDir, file), buffer);
+    return { ok: true, document: store.setDocument(params.id, { name, kind, size: buffer.length, file, html }) };
+  });
+  route('DELETE', '/api/exams/:id/document', { admin: true }, ({ params }) => { needExam(params.id); store.removeDocument(params.id); return { ok: true }; });
+  route('GET', '/api/exams/:id/results', { admin: true }, ({ params }) => {
+    const exam = needExam(params.id);
+    return { exam: { id: exam.id, title: exam.title, status: exam.status, questions: exam.questions }, results: resultsFor(exam) };
+  });
+  route('GET', '/api/exams/:id/export.csv', { admin: true }, ({ res, params }) => {
+    const exam = needExam(params.id);
+    const slug = exam.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'prova';
+    res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${slug}.csv"`, 'cache-control': 'no-store' });
+    res.end(examCsv(exam));
+    return null;
+  });
+  route('POST', '/api/grade', { admin: true }, async ({ req }) => {
+    const input = await readJson(req);
+    const session = needSession(String(input.sessionId || ''));
+    const question = needExam(session.examId).questions.find((x) => x.id === String(input.questionId));
+    if (!question) throw new HttpError(400, 'unknown_question');
+    if (input.score === null || input.score === '') { store.setGrade(session.id, question.id, null); return { ok: true }; }
+    const score = Number(input.score);
+    if (!Number.isFinite(score) || score < 0 || score > question.weight) throw new HttpError(400, 'invalid_score', `A nota deve estar entre 0 e ${question.weight}.`);
+    store.setGrade(session.id, question.id, score);
+    return { ok: true };
+  });
+  route('POST', '/api/sessions/:id/reopen', { admin: true }, ({ params }) => { needSession(params.id); store.reopen(params.id); return { ok: true }; });
+
+
+  // ---------- arquivos estáticos
+  const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+  const CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; frame-src 'self'; object-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+  function serveStatic(req, res, pathname) {
+    let rel = decodeURIComponent(pathname).replace(/\/+$/, '') || '/';
+    if (rel === '/') rel = '/index.html';
+    else if (rel === '/professor') rel = '/professor.html';
+    else if (rel === '/prova') rel = '/prova.html';
+    const file = path.normalize(path.join(dist, rel));
+    if (!file.startsWith(dist + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) throw new HttpError(404, 'not_found');
+    const ext = path.extname(file);
+    const headers = { 'content-type': TYPES[ext] || 'application/octet-stream', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' };
+    if (ext === '.html') { headers['content-security-policy'] = CSP; headers['cache-control'] = 'no-cache'; }
+    else if (rel.startsWith('/assets/')) headers['cache-control'] = 'public, max-age=31536000, immutable';
+    res.writeHead(200, headers);
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(file).pipe(res);
+  }
+
+  const sameOrigin = (origin, host) => { try { return new URL(origin).host === host; } catch { return false; } };
+
+  // ---------- servidor
+  const server = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url, 'http://localhost');
+      if (!url.pathname.startsWith('/api/')) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'method_not_allowed');
+        return serveStatic(req, res, url.pathname);
+      }
+      const method = req.method === 'HEAD' ? 'GET' : req.method;
+      const origin = req.headers.origin;
+      if (method !== 'GET' && origin && !sameOrigin(origin, req.headers.host)) throw new HttpError(403, 'bad_origin');
+      for (const r of routes) {
+        if (r.method !== method) continue;
+        const m = url.pathname.match(r.regex);
+        if (!m) continue;
+        if (r.admin && !isAdmin(req)) throw new HttpError(401, 'teacher_auth_required', 'Entre com o PIN do professor.');
+        const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
+        const result = await r.handler({ req, res, url, params });
+        if (result !== null && result !== undefined) sendJson(res, 200, result);
+        return;
+      }
+      throw new HttpError(404, 'api_not_found');
+    } catch (error) {
+      if (res.headersSent) return res.end();
+      if (error instanceof HttpError) return sendJson(res, error.status, { error: error.code, message: error.message });
+      if (error instanceof ExamError) return sendJson(res, 400, { error: error.code, message: error.message });
+      console.error(error);
+      sendJson(res, 500, { error: 'server_error', message: 'Erro interno do servidor.' });
+    }
+  });
+
+  const backupTimer = setInterval(() => store.snapshot(), 5 * 60_000);
+  backupTimer.unref();
+  const close = () => new Promise((resolve) => { clearInterval(backupTimer); server.close(() => { store.close(); resolve(); }); server.closeAllConnections?.(); });
+  return { server, store, pin, close };
 }
-const server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host||'localhost'}`); if(url.pathname.startsWith('/api/'))return await api(req,res,url); sendFile(req,res,url.pathname)}catch(error){console.error(error);json(res,500,{error:'server_error',message:error.message})}});
-server.listen(port,'0.0.0.0',()=>{console.log(`Atlas local ativo em http://localhost:${port}`);for(const item of Object.values(os.networkInterfaces()).flat().filter(x=>x?.family==='IPv4'&&!x.internal))console.log(`Na rede: http://${item.address}:${port}`);console.log('Professor: /professor | Alunos: /prova');console.log(`PIN do professor: ${teacherPin}`);});
+
+// ---------- execução direta: `npm start`
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const port = Number(process.env.PORT || 8080);
+  const app = createApp({ dataDir: process.env.ATLAS_DATA_DIR || path.join(root, 'data') });
+  if (!fs.existsSync(path.join(dist, 'index.html'))) console.warn('Aviso: a pasta dist/ não existe. Rode "npm run build" antes de iniciar.');
+  app.server.listen(port, '0.0.0.0', () => {
+    console.log(`\n  Atlas está no ar.\n`);
+    console.log(`  Professor   http://localhost:${port}/professor`);
+    for (const ip of Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal)) console.log(`  Alunos      http://${ip.address}:${port}/prova`);
+    console.log(`\n  PIN do professor: ${app.pin}\n`);
+  });
+  const stop = async () => { await app.close(); process.exit(0); };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+}

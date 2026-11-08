@@ -2,47 +2,21 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Busca de avaliações para uma biblioteca educacional." />
-    <title>Atlas | Biblioteca de avaliações</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Atlas</title>
+    <link rel="stylesheet" href="/src/styles/base.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand"><span class="brand-mark">A</span><span>atlas</span></div>
-        <p class="eyebrow">ESPAÇO DO PROFESSOR</p>
-        <nav class="main-nav" aria-label="Navegação principal">
-          <button class="nav-item active" data-view="discover"><span>⌕</span>Descobrir</button>
-          <button class="nav-item" data-view="library"><span>▤</span>Minha biblioteca</button>
-          <button class="nav-item" data-view="deleted"><span>⌫</span>Itens arquivados</button>
-        </nav>
-        <div class="sidebar-note"><strong>Busca feita para ensinar melhor.</strong><span>Encontre, adapte e organize avaliações em poucos segundos.</span></div>
-        <div class="profile"><div class="avatar">MS</div><div><strong>Marina Souza</strong><span>Escola Horizonte</span></div><span class="chevron">⌄</span></div>
-      </aside>
-
-      <main class="content">
-        <header class="topbar"><div><p class="eyebrow">BIBLIOTECA DE AVALIAÇÕES</p><h1 id="page-title">Descobrir avaliações</h1></div><div class="topbar-actions"><button class="secondary-button" id="attendance-button">▤ Lista de frequência</button><button class="primary-button" id="create-button"><span>＋</span> Criar avaliação</button></div></header>
-        <section class="hero-card">
-          <div class="hero-copy"><span class="pill">CATÁLOGO ABERTO</span><h2>Uma boa pergunta<br /><em>abre espaço para pensar.</em></h2><p>Pesquise por título, assunto ou conteúdo. Use os filtros para encontrar algo que combine com a sua turma.</p></div>
-          <div class="hero-graphic" aria-hidden="true"><div class="orb orb-one"></div><div class="orb orb-two"></div><div class="hero-lines">✦<br /><span>↗</span></div></div>
-        </section>
-        <section class="search-panel" aria-label="Busca e filtros">
-          <div class="search-row"><label class="search-box"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="Busque por título, assunto ou conteúdo..." autocomplete="off" /><kbd>⌘ K</kbd></label><button class="filter-toggle" id="filter-toggle">☷ <span>Filtros</span><b id="filter-count" class="hidden">0</b></button></div>
-          <div class="filter-bar" id="filter-bar"><div><label for="subject-filter">Assunto</label><select id="subject-filter"><option value="all">Todos os assuntos</option></select></div><div><label for="grade-filter">Série</label><select id="grade-filter"><option value="all">Todas as séries</option></select></div><div><label for="keyword-filter">Palavra-chave</label><select id="keyword-filter"><option value="all">Todas as palavras</option></select></div><button class="clear-button" id="clear-filters">Limpar filtros</button></div>
-        </section>
-        <section class="results-header"><div><span class="eyebrow" id="results-label">SUGESTÕES PARA SUA TURMA</span><h3><span id="result-count">0</span> avaliações encontradas</h3></div><div class="view-actions"><button class="sort-button" id="sort-button">Mais relevantes <span>⌄</span></button><button class="icon-button active" aria-label="Visualização em cartões">▦</button><button class="icon-button" aria-label="Visualização em lista">☷</button></div></section>
-        <section id="results-grid" class="results-grid" aria-live="polite"></section>
-        <div id="empty-state" class="empty-state hidden"><div class="empty-icon">⌕</div><h3>Nada encontrado ainda</h3><p>Tente uma palavra mais ampla ou remova algum filtro. A busca procura em títulos, assuntos, descrições e conteúdos.</p><button class="secondary-button" id="empty-clear">Limpar busca</button></div>
-        <footer class="footer-note"><span class="status-dot"></span> Catálogo atualizado hoje <span>•</span> Conteúdo curado pela comunidade</footer>
-      </main>
-    </div>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <dialog id="detail-dialog"><button class="dialog-close" id="dialog-close" aria-label="Fechar">×</button><div id="dialog-content"></div></dialog>
-    <dialog id="attendance-dialog"><button class="dialog-close" id="attendance-close" aria-label="Fechar">×</button><div class="dialog-content"><span class="pill">MODO TABLET</span><h2>Importar lista de frequência</h2><p>Escolha o PDF do diário de classe ou um CSV exportado pela escola. O arquivo é lido neste dispositivo e não é enviado para a Internet.</p><label class="file-drop"><span>＋</span><strong>Selecionar arquivo</strong><small>PDF, CSV ou TXT · funciona na rede local</small><input id="roster-file" type="file" accept=".pdf,.csv,.txt,text/csv,text/plain,application/pdf" /></label><div class="roster-status" id="roster-status">Nenhuma lista carregada nesta sessão.</div><button class="primary-button" id="send-roster" disabled>Enviar lista para o servidor local</button><div class="tablet-hint"><strong>Identificação durante a prova</strong><span>O aluno informa o número da coluna “#”. O sistema mostra o nome correspondente antes de começar.</span></div></div></dialog>
-    <script type="module" src="./src/app.js"></script>
+    <main class="center-screen">
+      <div class="stack">
+        <h1 class="title">Atlas</h1>
+        <p class="lead">Provas em rede local.<br />Sem Internet durante a aula.</p>
+        <div class="row" style="justify-content: center">
+          <a class="btn big" href="/prova">Sou aluno</a>
+          <a class="btn big secondary" href="/professor">Sou professor</a>
+        </div>
+      </div>
+    </main>
   </body>
 </html>
