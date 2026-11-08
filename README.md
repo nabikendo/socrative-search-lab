@@ -268,6 +268,8 @@ O painel consulta o notebook, não a Internet. Portanto, o professor pode visual
 
 Antes de usar em uma avaliação oficial, consulte o [relatório de auditoria](./AUDIT.md), que registra bugs encontrados, riscos de segurança, correções aplicadas e funcionalidades priorizadas.
 
+Consulte também o [guia das implementações prioritárias](./PRIORITY-IMPLEMENTATION.md) para usar XLSX, pesos, correção manual, várias provas e o alerta de desconexão.
+
 O CSV pode ser aberto no Excel, LibreOffice Calc ou Google Sheets depois que a Internet voltar.
 
 ## 11. Teste obrigatório antes da primeira aula

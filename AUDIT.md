@@ -8,6 +8,8 @@ Data da auditoria: 8 de novembro de 2026.
 - O importador de frequência agora aceita linhas com espaço, vírgula, ponto e vírgula ou tabulação, além de remover BOM de CSV.
 - O painel de respostas em tempo real foi validado com o fluxo de salvar resposta e consultar o endpoint administrativo.
 - O PDF.js foi fixado na versão `5.4.149`, evitando que uma atualização automática de faixa instale a versão indicada pelo `npm audit` como vulnerável a execução de JavaScript ao abrir PDF malicioso. Ainda assim, somente arquivos confiáveis da escola devem ser utilizados.
+- O cadastro de frequência passou a aceitar XLSX; sessões agora usam token aleatório depois do início; o aluno envia heartbeat; o painel indica online/desconectado; e cada gravação mantém backup atômico.
+- Foram adicionados pesos por questão e nota manual para respostas discursivas.
 
 ## Bugs e riscos que permanecem
 
@@ -17,11 +19,11 @@ Data da auditoria: 8 de novembro de 2026.
 
 2. **A rede local não é um modo offline completo.** O MVP funciona sem Internet, mas depende do Wi-Fi local e do notebook estarem ativos. Não há fila no navegador, IndexedDB, retry ou recuperação quando o servidor fica momentaneamente indisponível. Uma queda do roteador pode deixar respostas ainda não salvas.
 
-3. **Persistência em JSON não é transacional.** O arquivo `data/atlas-data.json` é reescrito a cada resposta. Uma queda do notebook no momento da escrita pode corromper o arquivo. O próximo passo deve ser SQLite com transações, backup automático e restauração.
+3. **Persistência em JSON ainda não substitui SQLite.** A escrita agora usa arquivo temporário, `rename` e cópia em `data/backups`, mas ainda não há consultas transacionais ou tela de restauração. O próximo passo deve ser SQLite.
 
 4. **HTML inserido de respostas/documentos precisa de endurecimento.** O painel usa conteúdo recebido do servidor para montar cards e o DOCX convertido é inserido como HTML. Em uma rede controlada o risco é menor, mas nomes, respostas e documentos devem passar por escaping/sanitização e a aplicação deve usar uma Content Security Policy.
 
-5. **Sessões podem ser reutilizadas por número.** O servidor retoma a sessão ativa do par prova+número. Sem um token secreto, um aluno que descubra outro número pode abrir a sessão correspondente. O sistema precisa emitir um token após a confirmação do nome e exigir esse token nas operações seguintes.
+5. **Sessões ainda podem ser iniciadas usando somente o número.** Depois do início, respostas, heartbeat e envio exigem token aleatório. Ainda falta PIN/código de turma e confirmação explícita do nome para impedir que alguém inicie a sessão de outro aluno.
 
 ### Média prioridade — corrigir para operação mais robusta
 
@@ -33,7 +35,7 @@ Data da auditoria: 8 de novembro de 2026.
 
 9. **PDF/DOCX não têm validação completa de tipo.** O servidor deve verificar assinatura do arquivo, extensão, tamanho e conteúdo antes de armazenar. Não basta confiar no MIME enviado pelo navegador.
 
-10. **Correção é parcial.** O gabarito automático funciona para alternativas marcadas com `*`. Questões discursivas ficam sem nota automática e ainda não existe fluxo de correção manual, rubrica ou revisão.
+10. **Correção é parcial.** O gabarito automático, pesos e nota manual já existem. Ainda faltam rubrica, revisão e histórico de alterações.
 
 11. **O aluno não tem uma etapa explícita de confirmação.** O nome é mostrado junto com a prova. Para reduzir erro de identificação, incluir uma tela “Você é [nome]? Confirmar / Voltar”.
 
@@ -43,11 +45,11 @@ Data da auditoria: 8 de novembro de 2026.
 
 - autenticação/PIN do professor;
 - código ou QR da turma e da prova;
-- token individual de sessão;
+- PIN do professor e token individual de sessão;
 - botão para fechar e reabrir a prova;
 - limite de horário e tempo restante;
 - SQLite transacional;
-- backup e restauração em pendrive;
+- restauração de backup em pendrive;
 - fila local com IndexedDB, retry e indicador “pendente de sincronização”;
 - sanitização de HTML e Content Security Policy;
 - validação real de PDF/DOCX.
@@ -55,13 +57,12 @@ Data da auditoria: 8 de novembro de 2026.
 ### P1 — uso pedagógico
 
 - pré-visualização e correção da lista de frequência antes de publicar;
-- importação de XLSX;
+- pré-visualização e correção da lista XLSX;
 - banco de questões com tags, busca e duplicação;
 - várias turmas e provas simultâneas;
-- correção manual de discursivas;
-- nota por peso e por habilidade;
+- nota por habilidade e rubrica;
 - relatórios por aluno, turma e questão;
-- alertas de aluno desconectado ou sem resposta por muito tempo;
+- alertas de aluno desconectado ou sem resposta por muito tempo (o primeiro já está disponível);
 - impressão de cartões de acesso com número/QR.
 
 ### P2 — acessibilidade e escala
