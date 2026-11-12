@@ -350,16 +350,34 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   return { server, store, pin, close };
 }
 
-// ---------- execução direta: `npm start`
+// ---------- execução direta: `npm start` ou os arquivos "Iniciar-Atlas"
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 8080);
-  const app = createApp({ dataDir: process.env.ATLAS_DATA_DIR || path.join(root, 'data') });
-  if (!fs.existsSync(path.join(dist, 'index.html'))) console.warn('Aviso: a pasta dist/ não existe. Rode "npm run build" antes de iniciar.');
+  const dataDir = process.env.ATLAS_DATA_DIR || path.join(root, 'data');
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  // PIN fixo: fica guardado em data/pin.txt para o professor não precisar decorar um novo a cada aula.
+  const pinFile = path.join(dataDir, 'pin.txt');
+  let pin = process.env.ATLAS_PIN || (fs.existsSync(pinFile) ? fs.readFileSync(pinFile, 'utf8').trim() : '');
+  if (!pin) { pin = String(crypto.randomInt(100000, 1000000)); fs.writeFileSync(pinFile, pin + '\n'); }
+
+  const app = createApp({ dataDir, pin });
+  if (!fs.existsSync(path.join(dist, 'index.html'))) console.warn('Aviso: faltam as telas do Atlas (pasta dist). Rode "npm run build" ou use o arquivo Iniciar-Atlas.');
+  app.server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') console.error(`\n  A porta ${port} já está em uso. Provavelmente o Atlas já está aberto em outra janela.\n  Feche a outra janela e tente de novo (ou use outra porta: PORT=3000).\n`);
+    else console.error(error);
+    process.exit(1);
+  });
   app.server.listen(port, '0.0.0.0', () => {
-    console.log(`\n  Atlas está no ar.\n`);
-    console.log(`  Professor   http://localhost:${port}/professor`);
-    for (const ip of Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal)) console.log(`  Alunos      http://${ip.address}:${port}/prova`);
-    console.log(`\n  PIN do professor: ${app.pin}\n`);
+    const ips = Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal).map((i) => i.address);
+    console.log('  O Atlas está no ar.\n');
+    console.log('  PROFESSOR (neste computador)');
+    console.log(`    http://localhost:${port}/professor`);
+    console.log(`    PIN: ${app.pin}\n`);
+    console.log('  ALUNOS (celular, tablet ou Chromebook na mesma rede Wi-Fi)');
+    for (const ip of ips) console.log(`    http://${ip}:${port}/prova`);
+    if (!ips.length) console.log('    Nenhuma rede encontrada: conecte este computador ao Wi-Fi da sala.');
+    console.log('\n  Dica: o painel do professor mostra um QR Code para os alunos.\n');
   });
   const stop = async () => { await app.close(); process.exit(0); };
   process.on('SIGINT', stop);

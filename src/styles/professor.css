@@ -26,3 +26,7 @@
 .bar-row { display: grid; gap: 6px; }
 .bar-row .progress > div { transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
 @media (max-width: 600px) { .stats { grid-template-columns: 1fr 1fr; } }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); }
+.step { display: flex; gap: 14px; align-items: flex-start; background: var(--surface); border-radius: var(--radius); padding: 18px 20px; }
+.step-n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; font-size: 14px; display: grid; place-items: center; }
+@media (max-width: 760px) { .steps { grid-template-columns: 1fr; } }

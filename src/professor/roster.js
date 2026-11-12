@@ -49,6 +49,11 @@ function render() {
       h('h1', { class: 'title' }, 'Turma'),
       h('p', { class: 'lead' }, state.roster.length ? `${plural(state.roster.length, 'aluno cadastrado', 'alunos cadastrados')}.` : 'Importe a lista de frequência para começar.')),
 
+    !state.roster.length && !state.preview && h('ol', { class: 'steps' },
+      step('1', 'Importe a lista de alunos', 'PDF do diário, planilha ou texto. É só uma vez por turma.'),
+      step('2', 'Crie a prova', 'Na aba Prova: escreva as questões e marque a resposta certa.'),
+      step('3', 'Abra para os alunos', 'Mostre o código e o QR Code. Acompanhe tudo na aba Resultados.')),
+
     state.preview
       ? h('div', { class: 'stack-s' },
         h('h2', { class: 'headline' }, `${plural(state.preview.length, 'aluno encontrado', 'alunos encontrados')}`),
@@ -65,5 +70,7 @@ function render() {
           h('div', { class: 'stack-s', style: 'margin-top:12px' }, textarea, h('div', {}, h('button', { class: 'btn secondary', onclick: () => propose(parseRosterText(textarea.value)) }, 'Ler lista')))),
         state.error && h('p', { class: 'error', role: 'alert' }, state.error)),
 
-    state.roster.length && !state.preview && h('div', { class: 'stack-s' }, h('h2', { class: 'headline' }, 'Lista atual'), studentList(state.roster))));
+    state.roster.length > 0 && !state.preview && h('div', { class: 'stack-s' }, h('h2', { class: 'headline' }, 'Lista atual'), studentList(state.roster))));
 }
+
+const step = (n, title, text) => h('li', { class: 'step' }, h('span', { class: 'step-n' }, n), h('div', {}, h('div', { class: 'headline', style: 'font-size:17px' }, title), h('div', { class: 'sub' }, text)));
