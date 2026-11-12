@@ -106,7 +106,7 @@ function questionBlock(q, index) {
       onblur: (event) => { clearTimeout(timer); if (event.target.value !== currentAnswer(q.id)) setAnswer(q.id, event.target.value); },
     });
   }
-  return h('section', { class: 'q-block' }, h('div', { class: 'q-index' }, `Questão ${index + 1}`), title, control);
+  return h('section', { class: 'q-block', id: `q-${q.id}` }, h('div', { class: 'q-index' }, `Questão ${index + 1}`), title, control);
 }
 
 function updateProgress() {
@@ -188,13 +188,18 @@ const dialog = $('#submit-dialog');
 $('#submit').addEventListener('click', () => {
   const { total, answered } = updateProgress();
   const missing = total - answered;
+  const blanks = state.exam.questions.map((q, i) => (currentAnswer(q.id) ? null : i + 1)).filter(Boolean);
   $('#submit-summary').textContent = missing
-    ? `Você respondeu ${answered} de ${total}. ${plural(missing, 'questão está', 'questões estão')} em branco. Depois do envio, não será possível alterar.`
+    ? `Você respondeu ${answered} de ${total}. Em branco: ${blanks.join(', ')}. Depois do envio, não será possível alterar.`
     : 'Depois do envio, não será possível alterar as respostas.';
   $('#submit-error').textContent = '';
   dialog.showModal();
 });
-$('#submit-cancel').addEventListener('click', () => dialog.close());
+$('#submit-cancel').addEventListener('click', () => {
+  dialog.close();
+  const blank = state.exam.questions.find((q) => !currentAnswer(q.id));
+  if (blank) document.getElementById(`q-${blank.id}`)?.scrollIntoView({ block: 'center' });
+});
 $('#submit-confirm').addEventListener('click', async () => {
   const button = $('#submit-confirm');
   button.disabled = true;

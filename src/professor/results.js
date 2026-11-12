@@ -3,7 +3,7 @@ import { h, clear, toast, plural, formatScore } from '../lib/dom.js';
 
 let root;
 let timer;
-const state = { exams: [], examId: null, data: null, open: new Set() };
+const state = { exams: [], examId: null, data: null, sig: '', open: new Set() };
 
 export function mount(el) { root = el; }
 export async function activate() {
@@ -18,7 +18,12 @@ async function refresh(force) {
   if (!state.examId) { state.data = null; render(); return; }
   // não redesenha enquanto o professor digita uma nota
   if (!force && root.contains(document.activeElement) && document.activeElement.matches('input')) return;
-  try { state.data = await api(`/api/exams/${state.examId}/results`); render(); } catch { /* o aviso de login é tratado globalmente */ }
+  try {
+    const next = await api(`/api/exams/${state.examId}/results`);
+    const sig = JSON.stringify(next);
+    if (!force && sig === state.sig) return;
+    state.sig = sig; state.data = next; render();
+  } catch { /* o aviso de login é tratado globalmente */ }
 }
 
 const badge = (r) => r.status === 'submitted' ? h('span', { class: 'badge ok' }, 'Enviada')
@@ -30,10 +35,10 @@ function render() {
   clear(root, h('div', { class: 'stack' },
     h('div', { class: 'row between' },
       h('h1', { class: 'title' }, 'Resultados'),
-      state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:280px', onchange: (e) => { state.examId = e.target.value; state.open.clear(); refresh(true); } },
+      state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:280px', onchange: (e) => { state.examId = e.target.value; state.open.clear(); state.sig = ''; refresh(true); } },
         state.exams.map((e) => h('option', { value: e.id, selected: e.id === state.examId }, e.title)))),
     !d ? h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')
-      : [summary(d), d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
+      : [summary(d), d.results.length ? stats(d) : null, d.results.length ? insights(d) : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
 }
 
 function summary(d) {
@@ -69,4 +74,35 @@ async function grade(sessionId, questionId, value) {
   try { await api('/api/grade', { method: 'POST', body: { sessionId, questionId, score: value === '' ? null : value } }); toast('Nota salva'); }
   catch (error) { toast(error.message); }
   refresh(true);
+}
+
+function stats(d) {
+  const sent = d.results.filter((r) => r.status === 'submitted');
+  const ratio = (r) => (r.max ? r.score / r.max : 0);
+  const avg = sent.length ? sent.reduce((t, r) => t + ratio(r), 0) / sent.length : null;
+  const max = d.results[0]?.max ?? 0;
+  const cell = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'caption' }, label), h('div', { class: 'stat-n' }, value), sub && h('div', { class: 'caption' }, sub));
+  return h('div', { class: 'stats' },
+    cell('Enviadas', `${sent.length}/${d.results.length}`),
+    cell('Online agora', String(d.results.filter((r) => r.online).length)),
+    cell('Média', avg === null ? '—' : formatScore(Math.round(avg * max * 100) / 100), avg === null ? 'aguardando envios' : `de ${formatScore(max)} · ${Math.round(avg * 100)}%`));
+}
+
+// Acerto por questão (só para as que têm gabarito): mostra o que a turma não aprendeu.
+function insights(d) {
+  const rows = d.exam.questions.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice' && q.correct).map(({ q, i }) => {
+    const given = d.results.map((r) => r.answers[q.id]).filter(Boolean);
+    const right = given.filter((a) => a === q.correct).length;
+    const wrong = {};
+    for (const a of given) if (a !== q.correct) wrong[a] = (wrong[a] || 0) + 1;
+    const top = Object.entries(wrong).sort((a, b) => b[1] - a[1])[0];
+    return { i, q, total: given.length, pct: given.length ? Math.round((right / given.length) * 100) : null, top };
+  });
+  if (!rows.length || !rows.some((r) => r.total)) return null;
+  return h('details', { class: 'card insights' },
+    h('summary', { class: 'headline' }, 'Desempenho por questão'),
+    h('div', { class: 'stack-s', style: 'margin-top:16px' }, rows.map(({ i, q, total, pct, top }) => h('div', { class: 'bar-row' },
+      h('div', { class: 'row between caption' }, h('span', {}, `Q${i + 1} · ${q.text.length > 60 ? q.text.slice(0, 60) + '…' : q.text}`), h('span', { class: 'score' }, pct === null ? '—' : `${pct}%`)),
+      h('div', { class: 'progress' }, h('div', { style: `width:${pct ?? 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })),
+      top && pct !== null && pct < 70 && h('div', { class: 'caption' }, `Erro mais comum: “${top[0]}” (${top[1]})`)))));
 }

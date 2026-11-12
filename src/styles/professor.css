@@ -17,3 +17,12 @@
 .score { font-variant-numeric: tabular-nums; font-weight: 600; }
 .right { margin-left: auto; text-align: right; }
 .sub { color: var(--text-2); font-size: 15px; }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.stat { background: var(--surface); border-radius: var(--radius); padding: 16px 20px; }
+.stat-n { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.insights summary { cursor: pointer; list-style: none; }
+.insights summary::-webkit-details-marker { display: none; }
+.bar-row { display: grid; gap: 6px; }
+.bar-row .progress > div { transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@media (max-width: 600px) { .stats { grid-template-columns: 1fr 1fr; } }
