@@ -54,7 +54,7 @@ function row(r, exam) {
     h('span', { class: 'num' }, r.number),
     h('span', { class: 'grow' }, h('div', {}, r.name), h('div', { class: 'caption' }, `${r.answered}/${r.total} respondidas${r.className ? ' · ' + r.className : ''}`)),
     badge(r),
-    h('span', { class: 'score', style: 'min-width:72px;text-align:right' }, `${formatScore(r.score)}/${formatScore(r.max)}`, r.pending ? h('div', { class: 'caption' }, `${r.pending} a corrigir`) : null));
+    h('span', { class: 'score', style: 'min-width:96px;text-align:right;white-space:nowrap' }, `${formatScore(r.score)}/${formatScore(r.max)}`, r.pending ? h('div', { class: 'caption' }, `${r.pending} a corrigir`) : null));
   if (!open) return h('div', {}, head);
   return h('div', {}, head,
     exam.questions.map((q, i) => {
