@@ -13,7 +13,7 @@
       <form id="login-form" class="stack" style="width: min(360px, 100%)">
         <div class="stack-s">
           <h1 class="title-m">Painel do professor</h1>
-          <p class="lead" style="font-size: 17px">Digite o PIN exibido no terminal do computador.</p>
+          <p class="lead" style="font-size: 17px">Digite o PIN mostrado na janela preta do Atlas (ou no arquivo data/pin.txt).</p>
         </div>
         <input id="pin" class="code-input" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••" aria-label="PIN do professor" />
         <p id="login-error" class="error" role="alert"></p>
@@ -30,6 +30,7 @@
               <button role="tab" data-tab="turma">Turma</button>
               <button role="tab" data-tab="prova">Prova</button>
               <button role="tab" data-tab="resultados">Resultados</button>
+              <button role="tab" data-tab="ajuda">Ajuda</button>
             </div>
           </nav>
           <button id="logout" class="btn quiet" type="button">Sair</button>
@@ -39,6 +40,7 @@
         <section id="tab-turma" hidden></section>
         <section id="tab-prova" hidden></section>
         <section id="tab-resultados" hidden></section>
+        <section id="tab-ajuda" hidden></section>
       </main>
     </div>
     <script type="module" src="/src/professor/main.js"></script>

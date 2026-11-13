@@ -17,14 +17,14 @@ export async function activate() {
 }
 export function deactivate() { clearInterval(timer); }
 
-const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, document: null, locked: false,
+const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, document: null, locked: false, shuffle: false,
   questions: [newQuestion('choice')] });
 function newQuestion(type) {
   return { id: questionId(), type, text: '', options: type === 'choice' ? ['', ''] : [], correctIndex: null, weight: 1 };
 }
 const fromServer = (exam, locked) => ({ ...exam, locked, questions: exam.questions.map((q) => ({ ...q, correctIndex: q.correct ? q.options.indexOf(q.correct) : null })) });
 function payload() {
-  return { id: state.model.id, title: state.model.title, questions: state.model.questions.map((q) => {
+  return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, questions: state.model.questions.map((q) => {
     const options = q.options.map((o) => o.trim());
     const correct = q.type === 'choice' && q.correctIndex !== null ? options[q.correctIndex] : undefined;
     return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct ? { correct } : {}), weight: Number(q.weight) || 1 };
@@ -80,7 +80,10 @@ function render() {
     m.locked && h('div', { class: 'notice' }, 'Esta prova já tem respostas, então as questões estão travadas. Para mudar algo, duplique a prova.'),
 
     h('div', { class: 'card stack-s' },
-      h('label', { class: 'field' }, h('span', {}, 'Título'), h('input', { value: m.title, placeholder: 'Ex.: Ligações químicas — 1º bimestre', oninput: (e) => { m.title = e.target.value; touch(); } }))),
+      h('label', { class: 'field' }, h('span', {}, 'Título'), h('input', { value: m.title, placeholder: 'Ex.: Ligações químicas — 1º bimestre', oninput: (e) => { m.title = e.target.value; touch(); } })),
+      h('label', { class: 'option', style: 'border-radius:14px' },
+        h('input', { type: 'checkbox', checked: !!m.shuffle, disabled: m.locked, onchange: (e) => { m.shuffle = e.target.checked; touch(); } }),
+        h('span', {}, h('strong', {}, 'Embaralhar para cada aluno'), h('span', { class: 'caption', style: 'display:block' }, 'Cada aluno vê as questões e as alternativas em ordem diferente. Evite alternativas como “todas as anteriores”.')))),
 
     ...m.questions.map((q, i) => questionCard(q, i)),
 

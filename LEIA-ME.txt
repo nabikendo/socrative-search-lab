@@ -1,0 +1,26 @@
+ATLAS - PROVAS EM REDE LOCAL
+============================
+
+COMO USAR (nao precisa instalar nada)
+
+1. Extraia esta pasta (botao direito > Extrair tudo, no Windows).
+2. De dois cliques em:
+     Windows ..... Iniciar-Atlas
+     Mac ......... Iniciar-Atlas.command
+        (na primeira vez: botao direito > Abrir > Abrir)
+3. O navegador abre sozinho no painel do professor. Digite o PIN mostrado
+   na janela preta.
+4. Deixe a janela preta ABERTA durante a aula. Para encerrar, feche-a.
+
+Os alunos usam o endereco que aparece na janela preta e no painel
+(algo como http://192.168.0.25:8080/prova), conectados ao mesmo Wi-Fi.
+
+Se algo nao funcionar, abra a aba "Ajuda" no painel do professor:
+ela testa a conexao e explica os problemas mais comuns.
+
+Windows: se aparecer "O Windows protegeu o computador", clique em
+"Mais informacoes" > "Executar assim mesmo". Se perguntar sobre o Firewall,
+marque "Redes privadas" e clique em "Permitir acesso".
+
+Seus dados ficam na pasta "data". Faca backup pela aba Ajuda.
+Guia completo: README.md

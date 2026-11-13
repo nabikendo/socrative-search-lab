@@ -114,3 +114,51 @@ test('regras de nota', () => {
   const r = scoreSession(exam, { [a.id]: 'x', [b.id]: 'texto' }, {});
   assert.deepEqual([r.score, r.max, r.pending], [2, 3, 1]);
 });
+
+test('embaralhar: ordem estável por aluno, preserva todas as alternativas e vai ao aluno', async () => {
+  const { orderForStudent, seededShuffle } = await import('../shared/shuffle.js');
+  const qs = Array.from({ length: 8 }, (_, i) => ({ id: `q${i}`, type: 'choice', text: `Q${i}`, options: ['a', 'b', 'c', 'd'] }));
+  const a1 = orderForStudent(qs, 'aluno-1'); const a2 = orderForStudent(qs, 'aluno-1'); const b = orderForStudent(qs, 'aluno-2');
+  assert.deepEqual(a1, a2);
+  assert.notDeepEqual(a1.map((q) => q.id), b.map((q) => q.id));
+  assert.deepEqual([...a1.map((q) => q.id)].sort(), qs.map((q) => q.id));
+  assert.ok(a1.every((q) => [...q.options].sort().join() === 'a,b,c,d'));
+  assert.deepEqual(seededShuffle([1, 2, 3, 4, 5], 'x').sort(), [1, 2, 3, 4, 5]);
+
+  const created = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'Embaralhada', shuffle: true, questions: [{ type: 'choice', text: 'Q?', options: ['A', 'B'], correct: 'A' }] } });
+  assert.equal(created.data.exam.shuffle, true);
+  const kept = await call('/api/exams', { method: 'POST', cookie: admin, body: { id: created.data.exam.id, title: 'Embaralhada 2', questions: [{ type: 'choice', text: 'Q?', options: ['A', 'B'], correct: 'A' }] } });
+  assert.equal(kept.data.exam.shuffle, true); // não informado: mantém
+  await call(`/api/exams/${created.data.exam.id}`, { method: 'DELETE', cookie: admin });
+});
+
+test('backup e restauração: devolve exatamente o estado salvo e guarda cópia do atual', async () => {
+  const keep = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'Prova do backup', questions: [{ type: 'text', text: 'Livre' }] } });
+  const res = await fetch(base + '/api/backup', { headers: { cookie: admin } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition'), /atlas-backup-\d{4}-\d{2}-\d{2}\.atlas/);
+  const file = await res.text();
+  assert.equal((await call('/api/backup')).status, 401);
+
+  await call(`/api/exams/${keep.data.exam.id}`, { method: 'DELETE', cookie: admin });
+  await call('/api/roster', { method: 'POST', cookie: admin, body: { roster: [{ number: '1', name: 'Só depois' }] } });
+  const restored = await call('/api/restore', { method: 'POST', cookie: admin, raw: file });
+  assert.equal(restored.status, 200);
+  const exams = (await call('/api/exams', { cookie: admin })).data.exams;
+  assert.ok(exams.some((e) => e.id === keep.data.exam.id));
+  assert.notDeepEqual((await call('/api/roster', { cookie: admin })).data.roster.map((r) => r.name), ['Só depois']);
+  assert.ok(fs.readdirSync(path.join(dir, 'backups')).some((f) => f.startsWith('atlas-antes-restauracao-')));
+
+  assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: 'isto não é um backup' })).status, 422);
+  assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: JSON.stringify({ format: 'atlas-backup', version: 1, db: Buffer.from('x'.repeat(2000)).toString('base64') }) })).status, 422);
+  assert.equal((await call('/api/restore', { method: 'POST', raw: file })).status, 401);
+  assert.equal((await call('/api/exams', { cookie: admin })).status, 200); // continua funcionando depois das tentativas inválidas
+});
+
+test('diagnóstico de rede: exige PIN e reconhece aparelhos que abriram a página do aluno', async () => {
+  assert.equal((await call('/api/diagnostics')).status, 401);
+  const before = (await call('/api/diagnostics', { cookie: admin })).data;
+  assert.equal(typeof before.port, 'number');
+  assert.ok(Array.isArray(before.interfaces) && Array.isArray(before.urls) && Array.isArray(before.devices));
+  assert.equal(before.devices.length, 0); // o próprio computador (127.0.0.1) não conta como aparelho de aluno
+});

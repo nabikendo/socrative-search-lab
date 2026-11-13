@@ -1,10 +1,14 @@
 import { api, ApiError } from './lib/api.js';
 import { $, h, clear, plural } from './lib/dom.js';
+import { orderForStudent } from '../shared/shuffle.js';
 
 const SESSION_KEY = 'atlas.session';
 const queueKey = (sessionId) => `atlas.queue.${sessionId}`;
 
-const state = { session: null, student: null, exam: null, answers: {}, pending: {}, closed: false, flushing: false, retryTimer: null, heartbeat: null };
+const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), scale: 1, answers: {}, pending: {}, closed: false, flushing: false, retryTimer: null, heartbeat: null };
+const flagsKey = (sessionId) => `atlas.flags.${sessionId}`;
+const scratchKey = (sessionId) => `atlas.scratch.${sessionId}`;
+const scaleKey = 'atlas.fontscale';
 
 const show = (id) => { for (const s of ['join', 'confirm', 'exam', 'done']) $('#' + s).hidden = s !== id; };
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
@@ -67,54 +71,164 @@ async function startSession(code, number, token) {
   state.heartbeat = setInterval(beat, 10000);
 }
 
-// ---------- 2. prova
+// ---------- 2. prova (uma questão por vez)
 const currentAnswer = (qid) => (qid in state.pending ? state.pending[qid] : state.answers[qid] || '');
+const letter = (i) => String.fromCharCode(65 + i);
+const formatWeight = (w) => String(w).replace('.', ',');
 
 function renderExam() {
   show('exam');
-  $('#student').textContent = `${state.student.name} · nº ${state.student.number}`;
-  $('#exam-title').textContent = state.exam.title;
+  const q = state.exam;
+  // cada aluno pode ter sua própria ordem de questões e alternativas (definido pelo professor)
+  state.questions = q.shuffle ? orderForStudent(q.questions, state.session.id) : q.questions;
+  state.index = Math.min(state.index, state.questions.length - 1);
+  state.flags = new Set(readJson(flagsKey(state.session.id)) || []);
+  state.scale = Number(readJson(scaleKey)) || 1;
+  document.documentElement.style.setProperty('--fs', String(state.scale));
 
-  const doc = state.exam.document;
-  const box = $('#document');
-  box.hidden = !doc;
-  if (doc) {
-    clear(box, doc.kind === 'pdf'
-      ? h('div', { class: 'stack-s' },
-        h('iframe', { class: 'doc-frame', title: doc.name, src: `/api/document/${doc.id}` }),
-        h('a', { class: 'caption', href: `/api/document/${doc.id}`, target: '_blank', rel: 'noopener' }, 'Abrir o documento em tela cheia'))
-      : Object.assign(h('div', { class: 'doc-html' }), { innerHTML: doc.html || '<p>Documento sem prévia.</p>' })); // HTML já sanitizado no servidor
-  }
+  const className = state.student.className;
+  $('#exam-title').textContent = className ? `${className} · ${q.title}` : q.title;
+  $('#student-name').textContent = state.student.name;
+  $('#student-meta').textContent = `nº ${state.student.number}`;
+  $('#hud-seat').textContent = `nº ${state.student.number}`;
+  $('#host').textContent = `Rede local · ${location.host}`;
+  $('#n-total').textContent = plural(state.questions.length, 'item', 'itens');
+  $('#scratch').value = readJson(scratchKey(state.session.id)) || '';
 
-  clear($('#questions'), ...state.exam.questions.map((q, i) => questionBlock(q, i)));
-  updateProgress();
+  const doc = q.document;
+  $('#doc-open').hidden = !doc;
+  if (doc) $('#doc-open').textContent = doc.kind === 'pdf' ? 'Ver documento (PDF)' : 'Ver documento';
+
+  clear($('#grid'), ...state.questions.map((question, i) => h('button', { type: 'button', 'data-i': i, 'aria-label': `Questão ${i + 1}`, onclick: () => go(i) }, String(i + 1).padStart(2, '0'))));
+  renderQuestion();
 }
 
-function questionBlock(q, index) {
-  const title = h('div', { class: 'q-title', id: `t-${q.id}` }, q.text);
+function renderQuestion() {
+  const q = state.questions[state.index];
+  const total = state.questions.length;
+  const last = state.index === total - 1;
   let control;
   if (q.type === 'choice') {
-    control = h('div', { class: 'list', role: 'radiogroup', 'aria-labelledby': `t-${q.id}` },
-      q.options.map((option) => h('label', { class: 'option' },
+    control = h('fieldset', { class: 'opts', style: 'border:0;padding:0;margin:0', 'aria-labelledby': 'q-text' },
+      q.options.map((option, i) => h('label', { class: 'opt' },
         h('input', { type: 'radio', name: q.id, value: option, checked: currentAnswer(q.id) === option, disabled: state.closed, onchange: () => setAnswer(q.id, option) }),
-        h('span', {}, option))));
+        h('span', { class: 'letter' }, letter(i)), h('span', {}, option))));
   } else {
     let timer;
     control = h('textarea', {
-      name: q.id, rows: 4, placeholder: 'Digite sua resposta', value: currentAnswer(q.id), disabled: state.closed, 'aria-labelledby': `t-${q.id}`,
+      name: q.id, rows: 6, placeholder: 'Digite sua resposta', value: currentAnswer(q.id), disabled: state.closed, 'aria-labelledby': 'q-text',
       oninput: (event) => { clearTimeout(timer); const value = event.target.value; markSaving(); timer = setTimeout(() => setAnswer(q.id, value), 500); },
       onblur: (event) => { clearTimeout(timer); if (event.target.value !== currentAnswer(q.id)) setAnswer(q.id, event.target.value); },
     });
   }
-  return h('section', { class: 'q-block', id: `q-${q.id}` }, h('div', { class: 'q-index' }, `Questão ${index + 1}`), title, control);
+  const flagged = state.flags.has(q.id);
+  clear($('#q-card'),
+    h('div', { class: 'q-meta' },
+      h('div', {}, h('div', { class: 'eyebrow' }, q.type === 'choice' ? `Peso ${formatWeight(q.weight)}` : `Questão aberta · peso ${formatWeight(q.weight)}`),
+        h('h1', { class: 'q-num' }, `Questão ${state.index + 1} `, h('small', {}, `de ${total}`))),
+      h('div', { class: 'q-tools', role: 'toolbar', 'aria-label': 'Ferramentas' },
+        h('button', { type: 'button', title: 'Diminuir a letra', 'aria-label': 'Diminuir a letra', onclick: () => setScale(-0.1) }, 'A−'),
+        h('button', { type: 'button', title: 'Aumentar a letra', 'aria-label': 'Aumentar a letra', onclick: () => setScale(0.1) }, 'A+'),
+        h('button', { type: 'button', 'aria-pressed': String(flagged), title: 'Marcar para revisar depois (R)', onclick: toggleFlag }, flagged ? '⚑ Revisar' : '⚐ Revisar'))),
+    h('div', { class: 'q-text', id: 'q-text' }, q.text),
+    control,
+    h('div', { class: 'q-nav' },
+      h('button', { class: 'btn secondary', type: 'button', disabled: state.index === 0, onclick: () => go(state.index - 1) }, '← Anterior'),
+      h('button', { class: 'btn quiet', type: 'button', disabled: state.closed || !currentAnswer(q.id), onclick: clearAnswer }, q.type === 'choice' ? 'Limpar seleção' : 'Limpar resposta'),
+      last ? h('button', { class: 'btn', type: 'button', onclick: openSubmit }, 'Revisar e entregar')
+        : h('button', { class: 'btn', type: 'button', onclick: () => go(state.index + 1) }, 'Próxima →')));
+  refreshSide();
 }
 
-function updateProgress() {
-  const total = state.exam.questions.length;
-  const answered = state.exam.questions.filter((q) => currentAnswer(q.id)).length;
-  $('#progress-bar').style.width = `${(answered / total) * 100}%`;
-  return { total, answered };
+function go(index) {
+  if (index < 0 || index >= state.questions.length) return;
+  state.index = index;
+  renderQuestion();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+function setScale(delta) {
+  state.scale = Math.min(1.6, Math.max(0.8, Math.round((state.scale + delta) * 10) / 10));
+  document.documentElement.style.setProperty('--fs', String(state.scale));
+  writeJson(scaleKey, state.scale);
+}
+function toggleFlag() {
+  const id = state.questions[state.index].id;
+  state.flags.has(id) ? state.flags.delete(id) : state.flags.add(id);
+  writeJson(flagsKey(state.session.id), [...state.flags]);
+  renderQuestion();
+}
+function clearAnswer() { if (!state.closed) { setAnswer(state.questions[state.index].id, ''); renderQuestion(); } }
+
+// painel lateral: contagens, barra e grade de questões
+function refreshSide() {
+  if (!state.questions.length) return;
+  const total = state.questions.length;
+  const done = state.questions.filter((q) => currentAnswer(q.id)).length;
+  const flagged = state.questions.filter((q) => state.flags.has(q.id)).length;
+  $('#n-done').textContent = done; $('#n-flag').textContent = flagged; $('#n-open').textContent = total - done;
+  $('#pct').textContent = `${Math.round((done / total) * 100)}%`;
+  $('#seg-done').style.width = `${(done / total) * 100}%`;
+  $('#seg-flag').style.width = `${(flagged / total) * 100}%`;
+  $('#progress-bar').style.width = `${(done / total) * 100}%`;
+  $('#hud-label').textContent = `${done} de ${total} respondidas`;
+  for (const button of $('#grid').children) {
+    const i = Number(button.dataset.i); const q = state.questions[i];
+    button.className = [currentAnswer(q.id) ? 'done' : '', i === state.index ? 'current' : ''].join(' ').trim();
+    button.querySelector('.flag')?.remove();
+    if (state.flags.has(q.id)) button.append(h('span', { class: 'flag' }, '⚑'));
+    button.setAttribute('aria-current', i === state.index ? 'true' : 'false');
+  }
+}
+const updateProgress = () => { refreshSide(); const total = state.questions.length; return { total, answered: state.questions.filter((q) => currentAnswer(q.id)).length }; };
+
+// rascunho (só neste aparelho)
+let scratchTimer;
+$('#scratch').addEventListener('input', (event) => {
+  clearTimeout(scratchTimer);
+  $('#scratch-status').textContent = 'Salvando…';
+  scratchTimer = setTimeout(() => { if (state.session) writeJson(scratchKey(state.session.id), event.target.value); $('#scratch-status').textContent = 'Fica só neste aparelho'; }, 400);
+});
+
+// atalhos de teclado
+document.addEventListener('keydown', (event) => {
+  if ($('#exam').hidden || document.querySelector('dialog[open]') || event.ctrlKey || event.metaKey || event.altKey) return;
+  const typing = ['TEXTAREA', 'INPUT'].includes(event.target.tagName) && event.target.type !== 'radio';
+  if (typing) return;
+  const q = state.questions[state.index];
+  if (event.key === 'ArrowRight') go(state.index + 1);
+  else if (event.key === 'ArrowLeft') go(state.index - 1);
+  else if (/^[1-9]$/.test(event.key) && q.type === 'choice' && !state.closed && q.options[Number(event.key) - 1]) { setAnswer(q.id, q.options[Number(event.key) - 1]); renderQuestion(); }
+  else if (event.key.toLowerCase() === 'r') toggleFlag();
+  else if (event.key === 'Escape' && !state.closed) clearAnswer();
+});
+
+// documento de apoio (leitor próprio para PDF)
+let pdf = null;
+$('#doc-open').addEventListener('click', async () => {
+  const doc = state.exam.document;
+  $('#doc-name').textContent = doc.name;
+  $('#doc-zoom').hidden = doc.kind !== 'pdf';
+  $('#doc-dialog').showModal();
+  const body = $('#doc-body');
+  if (body.dataset.loaded === doc.id) return;
+  if (doc.kind === 'pdf') {
+    try {
+      const { mountPdf } = await import('./lib/pdf-viewer.js');
+      pdf = await mountPdf(body, `/api/document/${doc.id}`);
+      pdf.setZoom(1);
+    } catch {
+      clear(body, h('div', { class: 'notice warn' }, 'Não consegui mostrar o documento aqui. ', h('a', { href: `/api/document/${doc.id}`, target: '_blank', rel: 'noopener' }, 'Abrir em outra aba')));
+      return;
+    }
+  } else {
+    clear(body, Object.assign(h('div', { class: 'doc-html' }), { innerHTML: doc.html || '<p>Documento sem prévia.</p>' })); // HTML já sanitizado no servidor
+  }
+  body.dataset.loaded = doc.id;
+});
+let zoom = 1;
+$('#zoom-in').addEventListener('click', () => { zoom = pdf?.setZoom(zoom + 0.5) ?? zoom; });
+$('#zoom-out').addEventListener('click', () => { zoom = pdf?.setZoom(zoom - 0.5) ?? zoom; });
+$('#doc-close').addEventListener('click', () => $('#doc-dialog').close());
 
 // ---------- 3. salvamento com fila local
 function setAnswer(qid, value) {
@@ -180,25 +294,28 @@ function lockExam(message) {
   const banner = $('#banner');
   banner.textContent = message;
   banner.hidden = false;
-  for (const input of document.querySelectorAll('#questions input, #questions textarea')) input.disabled = true;
+  renderQuestion();
 }
 
 // ---------- 4. envio
 const dialog = $('#submit-dialog');
-$('#submit').addEventListener('click', () => {
+function openSubmit() {
   const { total, answered } = updateProgress();
-  const missing = total - answered;
-  const blanks = state.exam.questions.map((q, i) => (currentAnswer(q.id) ? null : i + 1)).filter(Boolean);
-  $('#submit-summary').textContent = missing
-    ? `Você respondeu ${answered} de ${total}. Em branco: ${blanks.join(', ')}. Depois do envio, não será possível alterar.`
-    : 'Depois do envio, não será possível alterar as respostas.';
+  const blanks = state.questions.map((q, i) => (currentAnswer(q.id) ? null : i + 1)).filter(Boolean);
+  const marked = state.questions.map((q, i) => (state.flags.has(q.id) ? i + 1 : null)).filter(Boolean);
+  const parts = [];
+  if (blanks.length) parts.push(`Você respondeu ${answered} de ${total}. Em branco: ${blanks.join(', ')}.`);
+  if (marked.length) parts.push(`Marcadas para revisar: ${marked.join(', ')}.`);
+  parts.push('Depois do envio, não será possível alterar as respostas.');
+  $('#submit-summary').textContent = parts.join(' ');
   $('#submit-error').textContent = '';
   dialog.showModal();
-});
+}
+$('#submit').addEventListener('click', openSubmit);
 $('#submit-cancel').addEventListener('click', () => {
   dialog.close();
-  const blank = state.exam.questions.find((q) => !currentAnswer(q.id));
-  if (blank) document.getElementById(`q-${blank.id}`)?.scrollIntoView({ block: 'center' });
+  const first = state.questions.findIndex((q) => !currentAnswer(q.id));
+  if (first >= 0) go(first);
 });
 $('#submit-confirm').addEventListener('click', async () => {
   const button = $('#submit-confirm');
@@ -220,7 +337,7 @@ $('#submit-confirm').addEventListener('click', async () => {
 function finish() {
   clearInterval(state.heartbeat);
   clearTimeout(state.retryTimer);
-  if (state.session) { try { localStorage.removeItem(queueKey(state.session.id)); } catch { /* ignore */ } }
+  if (state.session) { for (const key of [queueKey(state.session.id), flagsKey(state.session.id), scratchKey(state.session.id)]) { try { localStorage.removeItem(key); } catch { /* ignore */ } } }
   try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   state.session = null;
   show('done');

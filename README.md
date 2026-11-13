@@ -4,14 +4,17 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 
 | Professor | Aluno |
 | --- | --- |
-| Importa a lista da turma, cria a prova (ou anexa um PDF/DOCX), abre com um código e acompanha as respostas ao vivo. | Digita o código e o número da lista, confirma o nome e responde. As respostas são salvas a cada alteração, mesmo se o Wi‑Fi cair. |
+| Importa a lista da turma, cria a prova (ou anexa um PDF/DOCX), abre com um código e acompanha as respostas ao vivo. A aba **Ajuda** testa a conexão e faz backup. | Digita o código e o número da lista, confirma o nome e responde **uma questão por vez**, com grade de questões, marcação para revisar e rascunho. As respostas são salvas a cada alteração, mesmo se o Wi‑Fi cair. |
 
-![Painel de resultados](docs/img/resultados.png)
+![Prova do aluno no computador](docs/img/aluno-desktop.png)
 
 <p>
-  <img src="docs/img/aluno-entrada.png" alt="Entrada do aluno" width="240" />
-  <img src="docs/img/aluno-prova.png" alt="Prova no celular" width="240" />
+  <img src="docs/img/aluno-entrada.png" alt="Entrada do aluno" width="230" />
+  <img src="docs/img/aluno-prova.png" alt="Prova no celular" width="230" />
+  <img src="docs/img/documento.png" alt="Documento PDF dentro da prova" width="230" />
 </p>
+
+![Painel de resultados](docs/img/resultados.png)
 
 > As imagens mostram dados de exemplo.
 
@@ -41,25 +44,33 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 
 Você não precisa usar terminal, comandos nem saber programar.
 
-**Passo 1. Baixe o Atlas.**
-Nesta página do GitHub, clique no botão verde **Code** e depois em **Download ZIP**. Quando terminar, clique com o botão direito no arquivo baixado e escolha **Extrair tudo** (Windows) ou dê dois cliques (Mac). Guarde a pasta onde for fácil de achar, por exemplo em *Documentos*.
+### Caminho fácil: pacote pronto (não instala nada)
 
-**Passo 2. Dê dois cliques para iniciar.**
-Dentro da pasta, abra:
+1. Abra a página **[Releases](../../releases/latest)** deste repositório (barra lateral direita, no GitHub).
+2. Em **Assets**, baixe o arquivo do seu computador:
+   - **Windows:** `Atlas-Windows.zip`
+   - **Mac com chip Apple (M1, M2, M3…):** `Atlas-Mac-AppleSilicon.zip`
+   - **Mac mais antigo (Intel):** `Atlas-Mac-Intel.zip`
+   - **Linux:** `Atlas-Linux.zip`
+3. Extraia o ZIP (botão direito → **Extrair tudo**) e guarde a pasta onde for fácil de achar, por exemplo em *Documentos*.
+4. Dê dois cliques em **`Iniciar-Atlas`** (Windows) ou **`Iniciar-Atlas.command`** (Mac). No Mac, na primeira vez: botão direito → **Abrir** → **Abrir**.
 
-- **Windows:** `Iniciar-Atlas` (ícone de engrenagem, tipo "Arquivo em lotes do Windows").
-- **Mac:** `Iniciar-Atlas.command`. Na primeira vez, clique com o botão direito → **Abrir** → **Abrir**, para o Mac confiar no arquivo.
-- **Linux:** `./Iniciar-Atlas.command` no terminal ou pelo gerenciador de arquivos.
+Esse pacote já inclui tudo, inclusive o Node.js. Funciona **sem Internet**, mesmo na primeira vez.
 
-**Passo 3. Se pedir o Node.js, instale.**
-Se o Node.js não estiver no computador, o Atlas abre a página [nodejs.org](https://nodejs.org/) para você. Baixe o botão **LTS**, instale clicando em *Avançar* até o fim e depois dê dois cliques em `Iniciar-Atlas` de novo.
+### Caminho alternativo: baixar o código
 
-**Passo 4. Aguarde a primeira preparação.**
-Na primeira vez, a janela preta mostra o progresso (alguns minutos, com Internet). Depois disso o Atlas abre sozinho o painel do professor no navegador.
+Se ainda não há pacote na página Releases:
+
+1. Nesta página, clique no botão verde **Code** → **Download ZIP** e extraia.
+2. Dê dois cliques em `Iniciar-Atlas` (ou `Iniciar-Atlas.command`).
+3. Se pedir o **Node.js**, o Atlas abre a página [nodejs.org](https://nodejs.org/): baixe o botão **LTS**, instale clicando em *Avançar* e dê dois cliques em `Iniciar-Atlas` de novo.
+4. Na primeira vez, a janela preta mostra a preparação (alguns minutos, **com Internet**). Depois, o painel do professor abre sozinho no navegador.
 
 > Se o Windows mostrar "O Windows protegeu o computador", clique em **Mais informações → Executar assim mesmo**. O arquivo apenas inicia o Atlas.
 >
 > Na primeira execução o Windows pode perguntar sobre o **Firewall**. Marque **Redes privadas** e clique em **Permitir acesso**. Sem isso os alunos não conseguem abrir a prova.
+>
+> No Mac, se aparecer um aviso sobre o arquivo `node` dentro da pasta `runtime`, abra **Ajustes do Sistema → Privacidade e Segurança** e clique em **Abrir mesmo assim**.
 
 ## 3. Dia a dia: aplicar uma prova
 
@@ -81,8 +92,9 @@ Na aba **Prova**:
 1. Dê um **título**.
 2. Escreva as questões. Em **múltipla escolha**, marque o círculo ao lado da alternativa correta para a correção ser automática. Use **Questão aberta** para respostas escritas.
 3. Ajuste o **peso** de cada questão (a nota é a soma dos pesos).
-4. *(Opcional)* **Anexe um PDF ou DOCX** com textos, figuras ou tabelas. O aluno vê o arquivo junto das questões.
-5. Clique em **Salvar**.
+4. *(Opcional)* **Anexe um PDF ou DOCX** com textos, figuras ou tabelas. O aluno abre o arquivo por um botão **Ver documento**, dentro da própria prova. O PDF é desenhado pelo Atlas, então aparece certinho em celulares e Chromebooks, com botões de zoom.
+5. *(Opcional)* Marque **Embaralhar para cada aluno**: cada aluno vê as questões e as alternativas em ordem diferente (e a ordem não muda se ele recarregar a página). Evite alternativas como “todas as anteriores”.
+6. Clique em **Salvar**.
 
 **Atalho para colar várias questões de uma vez**, uma por linha, em "Colar várias questões em texto":
 
@@ -102,7 +114,10 @@ Clique em **Abrir para os alunos**. O painel mostra o **código de 4 números**,
 1. Conectem o aparelho ao Wi‑Fi da sala.
 2. Abram o **QR Code** com a câmera (ou digitem o endereço mostrado, algo como `http://192.168.0.25:8080/prova`).
 3. Digitem o **código** e o **número da lista de frequência**.
-4. Confirmem o nome, respondam e toquem em **Enviar prova**.
+4. Confirmem o nome e respondam **uma questão por vez**. No computador, os atalhos são: `←` `→` navegar, `1`–`9` escolher a alternativa, `R` marcar para revisar, `Esc` limpar.
+5. Ao final, tocam em **Entregar prova**. O Atlas avisa quais questões ficaram em branco ou marcadas para revisar.
+
+**Na tela do aluno:** barra de progresso, grade para pular para qualquer questão, botões **A−/A+** para o tamanho da letra, **Revisar** (marcação só dele) e um **rascunho** que fica apenas no aparelho do aluno e não é enviado ao professor.
 
 > Os alunos devem usar o endereço com números (o `192.168…`), **nunca** `localhost`.
 
@@ -123,6 +138,13 @@ Para encerrar, volte à aba **Prova** e clique em **Encerrar prova**. Respostas 
 
 Faça um teste com Internet desligada e alguns alunos fictícios: abra a prova em um aparelho, responda, desligue o Wi‑Fi por um minuto (aparece "Sem conexão" e as respostas ficam guardadas no aparelho), religue, envie e baixe a planilha.
 
+### A aba Ajuda
+
+- **Primeiros passos:** o guia de 5 passos, mais os botões **Criar prova de exemplo** e **Criar alunos de teste** (só funciona se a lista de alunos estiver vazia), para você ensaiar sem alunos de verdade.
+- **Testar a conexão:** uma lista de verificação que se atualiza sozinha: o Atlas está funcionando, qual endereço os alunos devem usar (e se ele responde), se há prova aberta, se a turma foi importada e **quantos aparelhos de alunos já conectaram**. Se nenhum conectou, ela explica o que conferir (Wi‑Fi, Firewall).
+- **Backup e restauração:** **Baixar backup agora** gera um único arquivo `.atlas` com turma, provas, respostas e anexos. **Restaurar de um backup…** devolve tudo a esse estado; antes da troca o Atlas guarda uma cópia do estado atual em `data/backups`.
+- **Dúvidas frequentes.**
+
 ## 4. Como as notas funcionam
 
 | Tipo de questão | Nota |
@@ -135,7 +157,7 @@ A nota aparece como `pontos/máximo`, junto com quantas respostas aguardam corre
 ## 5. Problemas comuns
 
 **Os alunos não conseguem abrir a página.**
-Confira nesta ordem: (1) o computador e os aparelhos estão no **mesmo Wi‑Fi**? (2) os alunos estão usando o endereço com números mostrado no painel, e não `localhost`? (3) a janela preta do Atlas continua aberta? (4) no Windows, libere o **Firewall** para **Redes privadas** ou a porta **8080** (Painel de Controle → Firewall do Windows → *Permitir um aplicativo*, marque Node.js). (5) algumas redes de escola bloqueiam a comunicação entre aparelhos: use um roteador próprio ou o "ponto de acesso" do celular.
+Abra a aba **Ajuda → Testar a conexão** e, se precisar, confira nesta ordem: (1) o computador e os aparelhos estão no **mesmo Wi‑Fi**? (2) os alunos estão usando o endereço com números mostrado no painel, e não `localhost`? (3) a janela preta do Atlas continua aberta? (4) no Windows, libere o **Firewall** para **Redes privadas** ou a porta **8080** (Painel de Controle → Firewall do Windows → *Permitir um aplicativo*, marque Node.js). (5) algumas redes de escola bloqueiam a comunicação entre aparelhos: use um roteador próprio ou o "ponto de acesso" do celular.
 
 **Esqueci o PIN.**
 Abra o arquivo `data/pin.txt` com o Bloco de Notas. O PIN também aparece na janela preta ao iniciar.
@@ -153,7 +175,7 @@ Outro aparelho está usando o mesmo número agora. Se o aluno trocou de aparelho
 Em **Resultados**, abra o aluno e clique em **Reabrir para o aluno**.
 
 **O PDF anexado não aparece no celular.**
-Alguns celulares não mostram PDF dentro da página. Toque em **Abrir o documento em tela cheia**, ou use um **DOCX**, que é exibido direto na prova.
+O Atlas desenha o PDF dentro da prova, então deve aparecer (botão **Ver documento**). Se uma página falhar, o aluno pode tocar em **Abrir em outra aba**. Um **DOCX** também funciona.
 
 **Importei a lista do diário em PDF e vieram nomes errados.**
 A leitura de PDF depende do formato do diário. Se necessário, cole a lista como texto (`3;Nome do aluno`) ou use uma planilha.
@@ -175,8 +197,8 @@ As questões ficam travadas. Use **Duplicar** para criar uma cópia e alterar.
 
 Tudo fica na pasta `data/`: banco `atlas.sqlite`, anexos em `documents/`, o PIN em `pin.txt` e cópias automáticas em `backups/` (a cada 5 minutos, quando há mudanças, mantendo as 20 mais recentes).
 
-- **Guardar uma aula:** feche o Atlas e copie a pasta `data/` inteira para um pendrive.
-- **Restaurar:** feche o Atlas e substitua a pasta `data/`.
+- **Backup pelo painel (recomendado):** aba **Ajuda → Baixar backup agora**. Para voltar, **Restaurar de um backup…**.
+- **Guardar uma aula inteira:** feche o Atlas e copie a pasta `data/` para um pendrive.
 - **Atualizar o Atlas:** baixe o ZIP novo, extraia e **copie sua pasta `data/` antiga** para dentro da nova antes de iniciar.
 - **Desinstalar:** apague a pasta do Atlas.
 
@@ -191,16 +213,25 @@ npm test        # testes automáticos
 npm start       # compila e inicia o servidor (porta 8080)
 ```
 
-Requer Node.js **22.13+**. Variáveis opcionais: `PORT`, `ATLAS_PIN`, `ATLAS_DATA_DIR`.
+Requer Node.js **22.13+** (os pacotes prontos já trazem o Node.js). Variáveis opcionais: `PORT`, `ATLAS_PIN`, `ATLAS_DATA_DIR`.
 
 ```text
 server.mjs        servidor HTTP, rotas e regras de acesso
 lib/              banco SQLite (node:sqlite) e leitura de DOCX
-shared/           regras de prova, notas e leitura de listas (usadas no servidor e no navegador)
-src/professor/    painel do professor (Turma, Prova, Resultados)
+shared/           regras de prova, notas, embaralhamento e leitura de listas (usadas no servidor e no navegador)
+src/professor/    painel do professor (Turma, Prova, Resultados, Ajuda)
 src/prova.js      tela do aluno, com fila offline
 src/styles/       sistema de design (claro e escuro, sem fontes externas)
-scripts/          verificação do Node usada pelos arquivos Iniciar-Atlas
+scripts/          verificação do Node e montagem dos pacotes prontos (package.sh)
+.github/workflows publica os pacotes (Windows, Mac, Linux) na página Releases a cada versão `v*`
 test/             testes da API
 docs/             AUDIT.md (auditoria de segurança), ROADMAP.md (próximos passos)
 ```
+
+### Publicar uma nova versão com os pacotes prontos
+
+```bash
+git tag v1.1.0 && git push origin v1.1.0
+```
+
+O GitHub Actions (`.github/workflows/pacotes.yml`) roda os testes, monta os pacotes para Windows, Mac (Apple e Intel) e Linux, com o Node.js dentro, e os anexa à página Releases. Também dá para rodar manualmente em **Actions → Pacotes prontos para usar → Run workflow**.

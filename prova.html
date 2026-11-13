@@ -36,26 +36,53 @@
       </div>
     </main>
 
-    <!-- 3. prova -->
+    <!-- 3. prova (uma questão por vez) -->
     <div id="exam" hidden>
       <header class="topbar">
-        <div class="topbar-inner">
-          <span class="brand">Atlas</span>
-          <span id="student" class="caption grow"></span>
-          <span id="save-state" class="save-state ok" role="status" aria-live="polite"><span class="dot"></span><span id="save-label">Tudo salvo</span></span>
+        <div class="topbar-inner exam-bar">
+          <div class="grow">
+            <div id="exam-title" class="exam-title"></div>
+            <div class="caption exam-sub">
+              <span id="save-state" class="save-state ok" role="status" aria-live="polite"><span class="dot"></span><span id="save-label">Tudo salvo</span></span>
+              <span class="hide-s">·</span><span id="host" class="hide-s"></span>
+            </div>
+          </div>
+          <div class="who hide-s"><strong id="student-name"></strong><span id="student-meta" class="caption"></span></div>
+          <button id="submit" class="btn sm" type="button">Entregar prova</button>
         </div>
       </header>
-      <main class="page">
-        <div class="stack">
-          <div class="stack-s">
-            <h1 id="exam-title" class="title-m"></h1>
+      <div class="hud">
+        <div class="hud-inner">
+          <div class="grow">
+            <div class="row between caption"><span id="hud-label"></span><span id="hud-seat"></span></div>
             <div class="progress" aria-hidden="true"><div id="progress-bar"></div></div>
           </div>
-          <div id="banner" class="notice warn" role="alert" hidden></div>
-          <section id="document" hidden></section>
-          <form id="questions" class="stack" onsubmit="return false"></form>
-          <button id="submit" class="btn big block" type="button">Enviar prova</button>
+          <button id="doc-open" class="btn secondary sm" type="button" hidden>Ver documento</button>
         </div>
+      </div>
+      <div id="banner" class="notice warn banner" role="alert" hidden></div>
+      <main class="exam-layout">
+        <section id="q-card" class="card q-card" aria-live="polite"></section>
+        <aside class="side">
+          <div class="card stack-s">
+            <div class="row between"><h2 class="headline">Progresso</h2><span id="pct" class="badge"></span></div>
+            <div class="seg-bar" aria-hidden="true"><div id="seg-done"></div><div id="seg-flag"></div></div>
+            <div class="legend">
+              <div><b id="n-done">0</b><span>Respondidas</span></div>
+              <div><b id="n-flag">0</b><span>Revisar</span></div>
+              <div><b id="n-open">0</b><span>Em branco</span></div>
+            </div>
+          </div>
+          <div class="card stack-s">
+            <div class="row between"><h2 class="headline">Questões</h2><span id="n-total" class="caption"></span></div>
+            <nav id="grid" class="q-grid" aria-label="Ir para a questão"></nav>
+          </div>
+          <div class="card stack-s">
+            <div class="row between"><h2 class="headline">Rascunho</h2><span id="scratch-status" class="caption">Fica só neste aparelho</span></div>
+            <textarea id="scratch" rows="4" placeholder="Anote cálculos e ideias aqui. Não é enviado ao professor."></textarea>
+          </div>
+          <p class="caption keys hide-s"><kbd>←</kbd> <kbd>→</kbd> navegar · <kbd>1</kbd>–<kbd>9</kbd> alternativas · <kbd>R</kbd> revisar · <kbd>Esc</kbd> limpar</p>
+        </aside>
       </main>
     </div>
 
@@ -67,6 +94,18 @@
         <p class="lead" style="font-size: 17px">Suas respostas foram recebidas. Você já pode fechar esta página.</p>
       </div>
     </main>
+
+    <dialog id="doc-dialog" class="sheet">
+      <div class="sheet-head">
+        <strong id="doc-name" class="grow"></strong>
+        <div id="doc-zoom" class="row" hidden>
+          <button id="zoom-out" class="btn secondary sm" type="button" aria-label="Diminuir">−</button>
+          <button id="zoom-in" class="btn secondary sm" type="button" aria-label="Aumentar">+</button>
+        </div>
+        <button id="doc-close" class="btn sm" type="button">Fechar</button>
+      </div>
+      <div id="doc-body" class="sheet-body"></div>
+    </dialog>
 
     <dialog id="submit-dialog">
       <div class="stack-s">

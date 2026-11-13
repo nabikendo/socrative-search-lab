@@ -3,8 +3,9 @@ import { $, $$ } from '../lib/dom.js';
 import * as roster from './roster.js';
 import * as exam from './exam.js';
 import * as results from './results.js';
+import * as help from './help.js';
 
-const tabs = { turma: roster, prova: exam, resultados: results };
+const tabs = { turma: roster, prova: exam, resultados: results, ajuda: help };
 let mounted = false;
 let active = null;
 
@@ -47,6 +48,7 @@ $('#login-form').addEventListener('submit', async (event) => {
 });
 $('#logout').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); showLogin(); });
 window.addEventListener('atlas:auth-required', showLogin);
+window.addEventListener('atlas:goto', (event) => openTab(event.detail));
 
 (async () => {
   try { (await api('/api/auth/status')).authenticated ? await showApp() : showLogin(); }

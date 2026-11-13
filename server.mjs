@@ -5,7 +5,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { readSheet } from 'read-excel-file/node';
-import { openStore } from './lib/store.mjs';
+import { openStore, BackupError } from './lib/store.mjs';
 import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs';
 import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
 import { parseRosterRows } from './shared/roster.js';
@@ -24,6 +24,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   const adminSessions = new Map();
   const lastSeen = new Map(); // batimentos ficam só na memória: não geram escrita em disco
   const buckets = new Map();
+  const devices = new Map(); // aparelhos de alunos que abriram a página (para o diagnóstico de rede)
 
   // ---------- utilidades
   const same = (a, b) => {
@@ -67,7 +68,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   // ---------- regras
   const isOnline = (s) => s.status !== 'submitted' && Date.now() - Math.max(s.lastSeen, lastSeen.get(s.id) || 0) < ONLINE_MS;
   const publicExam = (exam) => ({
-    id: exam.id, title: exam.title,
+    id: exam.id, title: exam.title, shuffle: exam.shuffle,
     questions: studentQuestions(exam.questions),
     document: exam.document ? { id: exam.document.id, name: exam.document.name, kind: exam.document.kind, html: exam.document.kind === 'docx' ? store.getDocument(exam.document.id)?.html : undefined } : null,
   });
@@ -132,7 +133,12 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
 
   // público
   route('GET', '/api/health', () => ({ ok: true }));
-  route('GET', '/api/open-exam', () => {
+  const seenDevice = (req) => {
+    const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    if (ip && ip !== '127.0.0.1' && ip !== '::1') devices.set(ip, Date.now());
+  };
+  route('GET', '/api/open-exam', ({ req }) => {
+    seenDevice(req);
     const exam = store.getOpenExam();
     return { exam: exam ? { title: exam.title } : null };
   });
@@ -159,10 +165,11 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       session = store.rotateToken(session.id); // aluno trocou de aparelho depois que o anterior ficou inativo
     }
     lastSeen.set(session.id, Date.now());
-    return { session: { id: session.id, token: session.token }, student: { number: student.number, name: student.name }, exam: publicExam(exam), answers: store.getAnswers(session.id) };
+    return { session: { id: session.id, token: session.token }, student: { number: student.number, name: student.name, className: student.className }, exam: publicExam(exam), answers: store.getAnswers(session.id) };
   });
   route('POST', '/api/session/heartbeat', async ({ req }) => {
     const session = studentSession(await readJson(req));
+    seenDevice(req);
     lastSeen.set(session.id, Date.now());
     const exam = store.getExam(session.examId);
     return { ok: true, examOpen: exam?.status === 'open', submitted: session.status === 'submitted' };
@@ -242,7 +249,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
         if (JSON.stringify(normalizeQuestions(input.questions)) !== JSON.stringify(current.questions)) throw new HttpError(409, 'exam_has_sessions', 'Já existem respostas. Duplique a prova para alterar as questões.');
       }
     }
-    return { ok: true, exam: store.saveExam({ id: input.id ? String(input.id) : null, title, questions: input.questions }) };
+    return { ok: true, exam: store.saveExam({ id: input.id ? String(input.id) : null, title, questions: input.questions, shuffle: input.shuffle }) };
   });
   route('DELETE', '/api/exams/:id', { admin: true }, ({ params }) => {
     needExam(params.id);
@@ -291,6 +298,36 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   });
   route('POST', '/api/sessions/:id/reopen', { admin: true }, ({ params }) => { needSession(params.id); store.reopen(params.id); return { ok: true }; });
 
+  // diagnóstico de rede: ajuda o professor a descobrir por que os alunos não entram
+  route('GET', '/api/diagnostics', { admin: true }, async ({ req }) => {
+    const port = req.socket.localPort;
+    const VIRTUAL = /docker|veth|vmnet|vbox|virtual|wsl|hyper-v|vethernet|tailscale|zerotier|loopback|tun|tap/i;
+    const interfaces = Object.entries(os.networkInterfaces()).flatMap(([name, list]) => (list || [])
+      .filter((i) => i.family === 'IPv4' && !i.internal).map((i) => ({ name, address: i.address, virtual: VIRTUAL.test(name), linkLocal: i.address.startsWith('169.254.') })));
+    const urls = await Promise.all(lanUrls(port).map(async (url) => {
+      try { const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1500) }); return { url, reachable: r.ok }; }
+      catch { return { url, reachable: false }; }
+    }));
+    const t = Date.now();
+    const seen = [...devices].filter(([, at]) => t - at < 60_000).map(([ip, at]) => ({ ip, secondsAgo: Math.round((t - at) / 1000) })).sort((a, b) => a.secondsAgo - b.secondsAgo);
+    for (const [ip, at] of devices) if (t - at > 3600_000) devices.delete(ip);
+    return { port, interfaces, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length };
+  });
+
+  // backup manual: um único arquivo .atlas com banco e anexos
+  route('GET', '/api/backup', { admin: true }, ({ res }) => {
+    const day = new Date().toISOString().slice(0, 10);
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="atlas-backup-${day}.atlas"`, 'cache-control': 'no-store' });
+    res.end(JSON.stringify(store.exportBackup()));
+    return null;
+  });
+  route('POST', '/api/restore', { admin: true }, async ({ req }) => {
+    const raw = await readBody(req, 400_000_000);
+    let input;
+    try { input = JSON.parse(raw.toString('utf8')); } catch { throw new HttpError(422, 'invalid_backup', 'Este arquivo não é um backup válido do Atlas.'); }
+    try { return { ok: true, ...store.restoreBackup(input) }; }
+    catch (error) { if (error instanceof BackupError) throw new HttpError(422, 'invalid_backup', error.message); throw error; }
+  });
 
   // ---------- arquivos estáticos
   const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };

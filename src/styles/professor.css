@@ -30,3 +30,14 @@
 .step { display: flex; gap: 14px; align-items: flex-start; background: var(--surface); border-radius: var(--radius); padding: 18px 20px; }
 .step-n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; font-size: 14px; display: grid; place-items: center; }
 @media (max-width: 760px) { .steps { grid-template-columns: 1fr; } }
+.howto { margin: 0; padding-left: 22px; display: grid; gap: 8px; line-height: 1.45; }
+.checks { display: grid; gap: 4px; }
+.check { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.check:first-child { border-top: 0; }
+.check-dot { flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--text-3); }
+.check.ok .check-dot { background: var(--ok); } .check.warn .check-dot { background: var(--warn); } .check.bad .check-dot { background: var(--danger); }
+.check-title { font-weight: 600; }
+.faq { border-top: 1px solid var(--line); padding: 12px 0; }
+.faq:first-of-type { border-top: 0; }
+.faq summary { cursor: pointer; font-weight: 600; }
+.faq p { margin: 8px 0 0; }
