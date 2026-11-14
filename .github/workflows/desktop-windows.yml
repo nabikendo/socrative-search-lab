@@ -1,0 +1,45 @@
+name: Atlas Desktop Windows (teste)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/atlas-desktop-hardening
+    paths:
+      - 'desktop/**'
+      - 'server.mjs'
+      - 'lib/**'
+      - 'shared/**'
+      - 'src/**'
+      - 'package.json'
+      - '.github/workflows/desktop-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # npm install updates the lockfile in CI until the desktop dependency lockfile
+      # is committed. Replace with npm ci after the lockfile is synchronized.
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+      - name: Testes automatizados
+        run: npm test
+      - name: Compilar interface
+        run: npm run build
+      - name: Gerar instalador Windows offline
+        run: npx electron-builder --win nsis --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Guardar instalador de teste
+        uses: actions/upload-artifact@v4
+        with:
+          name: Atlas-Desktop-Windows-Teste
+          path: release-desktop/*.exe
+          if-no-files-found: error
