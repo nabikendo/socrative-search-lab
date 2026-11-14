@@ -5,8 +5,9 @@ import * as roster from './roster.js';
 import * as exam from './exam.js';
 import * as results from './results.js';
 import * as help from './help.js';
+import * as bank from './bank.js';
 
-const tabs = { turma: roster, prova: exam, resultados: results, ajuda: help };
+const tabs = { turma: roster, prova: exam, banco: bank, resultados: results, ajuda: help };
 initializeThemeButton();
 let mounted = false;
 let active = null;
@@ -56,3 +57,4 @@ window.addEventListener('atlas:goto', (event) => openTab(event.detail));
   try { (await api('/api/auth/status')).authenticated ? await showApp() : showLogin(); }
   catch { showLogin(); }
 })();
+

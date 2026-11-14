@@ -9,6 +9,7 @@ import { openStore, BackupError } from './lib/store.mjs';
 import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs';
 import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
 import { parseRosterRows } from './shared/roster.js';
+import { skillLabel } from './shared/skills.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -68,7 +69,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   // ---------- regras
   const isOnline = (s) => s.status !== 'submitted' && Date.now() - Math.max(s.lastSeen, lastSeen.get(s.id) || 0) < ONLINE_MS;
   const publicExam = (exam) => ({
-    id: exam.id, title: exam.title, shuffle: exam.shuffle,
+    id: exam.id, title: exam.title, shuffle: exam.shuffle, feedback: exam.feedback,
     questions: studentQuestions(exam.questions),
     document: exam.document ? { id: exam.document.id, name: exam.document.name, kind: exam.document.kind, html: exam.document.kind === 'docx' ? store.getDocument(exam.document.id)?.html : undefined } : null,
   });
@@ -94,7 +95,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       const given = answers[s.id] || {};
       const result = scoreSession(exam, given, grades[s.id]);
       return {
-        sessionId: s.id, number: s.number, name: roster.get(s.number)?.name || 'Aluno fora da lista', className: roster.get(s.number)?.className || '',
+        sessionId: s.id, number: s.number, name: s.name || roster.get(s.number)?.name || 'Aluno fora da lista', className: s.className || roster.get(s.number)?.className || '',
         status: s.status, online: isOnline(s), startedAt: s.startedAt, submittedAt: s.submittedAt,
         answered: Object.values(given).filter(Boolean).length, total: exam.questions.length,
         score: result.score, max: result.max, pending: result.pending, detail: result.detail, answers: given, grades: grades[s.id] || {},
@@ -114,6 +115,47 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       rows.push([r.number, r.name, r.className, r.status === 'submitted' ? 'enviada' : 'em andamento', r.startedAt, r.submittedAt || '', decimal(r.score), decimal(r.max), r.pending, ...exam.questions.map((q) => r.answers[q.id] || '')]);
     }
     return '\uFEFF' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
+  }
+
+  function simplePdf(lines) {
+    const clean = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '?');
+    const wrapped = lines.flatMap((line) => {
+      const text = clean(line);
+      if (!text) return [''];
+      const parts = [];
+      for (let i = 0; i < text.length; i += 88) parts.push(text.slice(i, i + 88));
+      return parts;
+    });
+    const pageLines = [];
+    for (let i = 0; i < wrapped.length; i += 48) pageLines.push(wrapped.slice(i, i + 48));
+    const objects = [];
+    const add = (value) => { objects.push(value); return objects.length; };
+    const catalog = add('');
+    const pages = add('');
+    const regular = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+    const bold = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    const pageIds = [];
+    for (const page of pageLines) {
+      let stream = 'BT\n/F1 10 Tf\n50 790 Td\n14 TL\n';
+      page.forEach((line, index) => {
+        if (index === 0 && pageIds.length === 0) stream += '/F2 14 Tf\n';
+        stream += `(${line.replace(/[\\()]/g, '\\$&')}) Tj\nT*\n`;
+        if (index === 0 && pageIds.length === 0) stream += '/F1 10 Tf\n';
+      });
+      stream += 'ET';
+      const streamId = add(`<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`);
+      pageIds.push(add(`<< /Type /Page /Parent ${pages} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${regular} 0 R /F2 ${bold} 0 R >> >> /Contents ${streamId} 0 R >>`));
+    }
+    objects[catalog - 1] = `<< /Type /Catalog /Pages ${pages} 0 R >>`;
+    objects[pages - 1] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
+    let output = '%PDF-1.4\n';
+    const offsets = [0];
+    objects.forEach((object, i) => { offsets.push(Buffer.byteLength(output, 'latin1')); output += `${i + 1} 0 obj\n${object}\nendobj\n`; });
+    const xref = Buffer.byteLength(output, 'latin1');
+    output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    offsets.slice(1).forEach((offset) => { output += `${String(offset).padStart(10, '0')} 00000 n \n`; });
+    output += `trailer\n<< /Size ${objects.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return Buffer.from(output, 'latin1');
   }
 
   function lanUrls(port) {
@@ -146,7 +188,8 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     limit(req, 'identify', 30);
     const input = await readJson(req);
     const exam = openExamWithCode(input.code);
-    const student = store.findStudent(String(input.number ?? '').trim());
+    const number = String(input.number ?? '').trim();
+    const student = exam.classId ? store.classRoster(exam.classId).find((r) => r.number === number) : store.findStudent(number);
     if (!student) throw new HttpError(404, 'student_not_found', 'Número não encontrado na lista.');
     return { student: { number: student.number, name: student.name }, exam: { title: exam.title } };
   });
@@ -154,11 +197,11 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     limit(req, 'start', 30);
     const input = await readJson(req);
     const exam = openExamWithCode(input.code);
-    const student = store.findStudent(String(input.number ?? '').trim());
+    const student = exam.classId ? store.classRoster(exam.classId).find((r) => r.number === String(input.number ?? '').trim()) : store.findStudent(String(input.number ?? '').trim());
     if (!student) throw new HttpError(404, 'student_not_found', 'Número não encontrado na lista.');
 
     let session = store.findSession(exam.id, student.number);
-    if (!session) session = store.createSession(exam.id, student.number);
+    if (!session) session = store.createSession(exam.id, student.number, student);
     else if (session.status === 'submitted') throw new HttpError(409, 'already_submitted', 'Esta prova já foi enviada. Fale com o professor.');
     else if (!same(session.token, String(input.token || ''))) {
       if (isOnline(session)) throw new HttpError(409, 'session_in_use', 'Este número já está em uso em outro aparelho.');
@@ -187,6 +230,16 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     store.saveAnswer(session.id, question.id, answer);
     lastSeen.set(session.id, Date.now());
     return { ok: true };
+  });
+  route('POST', '/api/session/feedback', async ({ req }) => {
+    const input = await readJson(req);
+    const session = studentSession(input);
+    const exam = needExam(session.examId);
+    if (!exam.feedback) throw new HttpError(403, 'feedback_disabled');
+    if (!store.getAnswers(session.id)[String(input.questionId || '')]) throw new HttpError(404, 'answer_required');
+    const question = exam.questions.find((x) => x.id === String(input.questionId));
+    if (!question || (question.type === 'choice' && !question.correct) || (question.type === 'text' && !question.explanation)) throw new HttpError(404, 'feedback_unavailable');
+    return { correct: question.correct || null, explanation: question.explanation || '' };
   });
   route('POST', '/api/session/submit', async ({ req }) => {
     const session = studentSession(await readJson(req));
@@ -224,6 +277,18 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   // professor
   route('GET', '/api/network', { admin: true }, ({ req }) => ({ urls: lanUrls(req.socket.localPort) }));
   route('GET', '/api/roster', { admin: true }, () => ({ roster: store.getRoster() }));
+  route('GET', '/api/classes', { admin: true }, () => ({ classes: store.listClasses() }));
+  route('POST', '/api/classes', { admin: true }, async ({ req }) => {
+    const input = await readJson(req);
+    const rows = parseRosterRows((input.roster || []).map((r) => [r.number, r.name]));
+    if (!rows.length) throw new HttpError(400, 'roster_required', 'A lista está vazia.');
+    try { return { ok: true, class: store.saveClass(input.name, rows, input.id || null) }; }
+    catch (error) { throw new HttpError(409, 'class_name_conflict', error.message || 'Não foi possível salvar a turma.'); }
+  });
+  route('GET', '/api/classes/:id/roster', { admin: true }, ({ params }) => {
+    if (!store.getClass(params.id)) throw new HttpError(404, 'class_not_found');
+    return { roster: store.classRoster(params.id) };
+  });
   route('POST', '/api/roster', { admin: true }, async ({ req }) => {
     const input = await readJson(req);
     if (!Array.isArray(input.roster) || !input.roster.length) throw new HttpError(400, 'roster_required', 'A lista está vazia.');
@@ -233,9 +298,23 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   });
   route('POST', '/api/roster/parse-xlsx', { admin: true }, async ({ req }) => {
     const buffer = await readBody(req, 5_000_000);
-    try { return { roster: parseRosterRows(await readSheet(buffer)) }; }
+    try {
+      const sheet = await readSheet(buffer);
+      const counts = new Map();
+      for (const row of sheet) {
+        const number = String(row?.[0] ?? '').trim();
+        if (/^\d{1,3}$/.test(number)) counts.set(String(Number(number)), (counts.get(String(Number(number))) || 0) + 1);
+      }
+      return { roster: parseRosterRows(sheet), duplicates: [...counts].filter(([, count]) => count > 1).map(([number, count]) => ({ number, count })) };
+    }
     catch { throw new HttpError(422, 'invalid_spreadsheet', 'Não consegui ler esta planilha. Use um arquivo .xlsx.'); }
   });
+  route('GET', '/api/question-bank', { admin: true }, () => ({ questions: store.listBankQuestions() }));
+  route('POST', '/api/question-bank', { admin: true }, async ({ req }) => {
+    try { return { question: store.saveBankQuestion(await readJson(req)) }; }
+    catch (error) { throw new HttpError(400, error.code || 'invalid_question', error.message); }
+  });
+  route('DELETE', '/api/question-bank/:id', { admin: true }, ({ params }) => { store.deleteBankQuestion(params.id); return { ok: true }; });
 
   route('GET', '/api/exams', { admin: true }, () => ({ exams: store.listExams().map(({ questions, document, ...e }) => ({ ...e, questionCount: questions.length, document })) }));
   route('GET', '/api/exams/:id', { admin: true }, ({ params }) => ({ exam: needExam(params.id) }));
@@ -250,10 +329,13 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     if (input.id) {
       const current = needExam(String(input.id));
       if (store.hasSessions(current.id)) {
-        if (JSON.stringify(normalizeQuestions(input.questions)) !== JSON.stringify(current.questions)) throw new HttpError(409, 'exam_has_sessions', 'Já existem respostas. Duplique a prova para alterar as questões.');
+        const classChanged = input.classId !== undefined && (input.classId || null) !== current.classId;
+        const feedbackChanged = input.feedback !== undefined && !!input.feedback !== current.feedback;
+        if (JSON.stringify(normalizeQuestions(input.questions)) !== JSON.stringify(current.questions) || classChanged || feedbackChanged) throw new HttpError(409, 'exam_has_sessions', 'Já existem respostas. Duplique a prova para alterar questões, turma ou feedback.');
       }
     }
-    return { ok: true, exam: store.saveExam({ id: input.id ? String(input.id) : null, title, questions: input.questions, shuffle: input.shuffle }) };
+    if (input.classId && !store.getClass(String(input.classId))) throw new HttpError(400, 'class_not_found');
+    return { ok: true, exam: store.saveExam({ id: input.id ? String(input.id) : null, title, questions: input.questions, shuffle: input.shuffle, classId: input.classId, feedback: input.feedback }) };
   });
   route('DELETE', '/api/exams/:id', { admin: true }, ({ params }) => {
     needExam(params.id);
@@ -289,6 +371,20 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     res.end(examCsv(exam));
     return null;
   });
+  route('GET', '/api/sessions/:id/report.pdf', { admin: true }, ({ res, params }) => {
+    const session = needSession(params.id);
+    const exam = needExam(session.examId);
+    const result = resultsFor(exam).find((r) => r.sessionId === session.id);
+    const lines = [
+      'ATLAS - RELATORIO INDIVIDUAL', `Prova: ${exam.title}`, `Estudante: ${result.name} - numero ${result.number}`,
+      `Turma: ${result.className || 'Nao informada'}`, `Situacao: ${result.status === 'submitted' ? 'Entregue' : 'Em andamento'}`,
+      `Nota: ${result.score} / ${result.max}`, '', 'RESPOSTAS',
+      ...exam.questions.flatMap((q, i) => [`${i + 1}. ${q.text}`, `Habilidade: ${skillLabel(q.skill) || 'Nao informada'} | Nota: ${result.detail[q.id]?.earned ?? 'Pendente'} / ${q.weight}`, `Resposta: ${result.answers[q.id] || 'Sem resposta'}`, '']),
+    ];
+    const pdf = simplePdf(lines);
+    res.writeHead(200, { 'content-type': 'application/pdf', 'content-length': pdf.length, 'content-disposition': `attachment; filename="atlas-relatorio-${session.number}.pdf"`, 'cache-control': 'no-store' });
+    res.end(pdf); return null;
+  });
   route('POST', '/api/grade', { admin: true }, async ({ req }) => {
     const input = await readJson(req);
     const session = needSession(String(input.sessionId || ''));
@@ -315,7 +411,8 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const t = Date.now();
     const seen = [...devices].filter(([, at]) => t - at < 60_000).map(([ip, at]) => ({ ip, secondsAgo: Math.round((t - at) / 1000) })).sort((a, b) => a.secondsAgo - b.secondsAgo);
     for (const [ip, at] of devices) if (t - at > 3600_000) devices.delete(ip);
-    return { port, interfaces, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length };
+    const classStudents = store.listClasses().reduce((sum, c) => sum + c.students, 0);
+    return { port, interfaces, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length + classStudents };
   });
 
   // backup manual: um único arquivo .atlas com banco e anexos
@@ -424,3 +521,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 }
+

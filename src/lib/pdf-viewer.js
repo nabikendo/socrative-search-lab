@@ -1,9 +1,10 @@
 // Leitor de PDF próprio: desenha as páginas em canvas, então funciona em celulares e Chromebooks
 // que não mostram PDF dentro de <iframe>. As páginas são desenhadas só quando aparecem na tela.
 import * as pdfjs from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { h } from './dom.js';
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export async function mountPdf(container, url) {
   container.replaceChildren(h('p', { class: 'caption', style: 'text-align:center;padding:24px' }, 'Carregando documento…'));
@@ -46,3 +47,4 @@ export async function mountPdf(container, url) {
     },
   };
 }
+

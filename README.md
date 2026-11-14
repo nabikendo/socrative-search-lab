@@ -4,7 +4,7 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 
 | Professor | Aluno |
 | --- | --- |
-| Importa a lista da turma, cria a prova (ou anexa um PDF/DOCX), abre com um código e acompanha as respostas ao vivo. A aba **Ajuda** testa a conexão e faz backup. | Digita o código e o número da lista, confirma o nome e responde **uma questão por vez**, com grade de questões, marcação para revisar e rascunho. As respostas são salvas a cada alteração, mesmo se o Wi‑Fi cair. |
+| Mantém turmas e históricos separados, importa o Diário de Classe, reutiliza questões, relaciona itens a descritores do SAEB, abre provas e acompanha a turma ao vivo. Pode habilitar feedback imediato e relatórios individuais em PDF. | Digita o código e o número da lista, confirma o nome e responde **uma questão por vez**, com grade de questões, marcação para revisar e rascunho. As respostas são salvas a cada alteração, mesmo se o Wi‑Fi cair. |
 
 ![Prova do aluno no computador](docs/img/aluno-desktop.png)
 
@@ -81,7 +81,7 @@ Se ainda não há pacote na página Releases:
 
 ### Passo 1: Turma (só na primeira vez)
 
-Na aba **Turma**, importe a lista de alunos. Aceita **PDF do diário de classe**, planilha **.xlsx**, **.csv** ou texto colado, no formato `número;nome;turma`. O Atlas mostra uma prévia: confira e clique em **Importar**.
+Na aba **Turma**, importe a lista de alunos. Aceita **PDF do diário de classe**, planilha **.xlsx**, **.csv** ou texto colado, no formato `número;nome;turma`. No Diário da SEDUC-TO, a turma do cabeçalho é aplicada aos alunos de todas as páginas. O Atlas mostra uma prévia e destaca números repetidos; confira antes de importar. Cada turma fica salva separadamente, e importar uma lista não apaga as outras.
 
 ![Aba Turma](docs/img/turma.png)
 
@@ -89,12 +89,16 @@ Na aba **Turma**, importe a lista de alunos. Aceita **PDF do diário de classe**
 
 Na aba **Prova**:
 
-1. Dê um **título**.
+1. Dê um **título** e escolha a **turma** da prova.
 2. Escreva as questões. Em **múltipla escolha**, marque o círculo ao lado da alternativa correta para a correção ser automática. Use **Questão aberta** para respostas escritas.
 3. Ajuste o **peso** de cada questão (a nota é a soma dos pesos).
-4. *(Opcional)* **Anexe um PDF ou DOCX** com textos, figuras ou tabelas. O aluno abre o arquivo por um botão **Ver documento**, dentro da própria prova. O PDF é desenhado pelo Atlas, então aparece certinho em celulares e Chromebooks, com botões de zoom.
-5. *(Opcional)* Marque **Embaralhar para cada aluno**: cada aluno vê as questões e as alternativas em ordem diferente (e a ordem não muda se ele recarregar a página). Evite alternativas como “todas as anteriores”.
-6. Clique em **Salvar**.
+4. Vincule opcionalmente um **descritor da Matriz de Matemática do SAEB**, escolhendo a etapa correta. O relatório agrupa acertos por etapa e descritor.
+5. *(Opcional)* Ative **feedback após cada questão** e escreva uma explicação para mostrar ao aluno depois que responder.
+6. *(Opcional)* **Anexe um PDF ou DOCX** com textos, figuras ou tabelas. Um PDF com texto selecionável também pode ser convertido em questões para revisão. Questões de PDFs escaneados como imagem precisam de OCR externo. O aluno pode abrir o documento durante a prova.
+7. *(Opcional)* Marque **Embaralhar para cada aluno**: cada aluno vê as questões e as alternativas em ordem diferente (e a ordem não muda se ele recarregar a página). Evite alternativas como “todas as anteriores”.
+8. Clique em **Salvar**.
+
+Questões podem ser guardadas e reutilizadas na aba **Banco**. Em **Resultados**, acompanhe alunos online e baixe a planilha ou um relatório individual em PDF.
 
 **Atalho para colar várias questões de uma vez**, uma por linha, em "Colar várias questões em texto":
 
@@ -199,7 +203,7 @@ Tudo fica na pasta `data/`: banco `atlas.sqlite`, anexos em `documents/`, o PIN 
 
 - **Backup pelo painel (recomendado):** aba **Ajuda → Baixar backup agora**. Para voltar, **Restaurar de um backup…**.
 - **Guardar uma aula inteira:** feche o Atlas e copie a pasta `data/` para um pendrive.
-- **Atualizar o Atlas:** baixe o ZIP novo, extraia e **copie sua pasta `data/` antiga** para dentro da nova antes de iniciar.
+- **Atualizar o Atlas:** na versão instalada para Windows, use **Atlas → Buscar atualizações** ou `Alt+U`. O programa pergunta antes de baixar. Em versões portáteis, baixe o ZIP novo, extraia e copie sua pasta `data/` antiga para dentro da nova antes de iniciar.
 - **Desinstalar:** apague a pasta do Atlas.
 
 ## 8. Para quem desenvolve
@@ -235,3 +239,4 @@ git tag v1.1.0 && git push origin v1.1.0
 ```
 
 O GitHub Actions (`.github/workflows/pacotes.yml`) roda os testes, monta os pacotes para Windows, Mac (Apple e Intel) e Linux, com o Node.js dentro, e os anexa à página Releases. Também dá para rodar manualmente em **Actions → Pacotes prontos para usar → Run workflow**.
+

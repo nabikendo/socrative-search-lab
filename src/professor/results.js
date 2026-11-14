@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural, formatScore } from '../lib/dom.js';
+import { skillLabel } from '../../shared/skills.js';
 
 let root;
 let timer;
@@ -38,7 +39,7 @@ function render() {
       state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:280px', onchange: (e) => { state.examId = e.target.value; state.open.clear(); state.sig = ''; refresh(true); } },
         state.exams.map((e) => h('option', { value: e.id, selected: e.id === state.examId }, e.title)))),
     !d ? h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')
-      : [summary(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? insights(d) : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
+      : [summary(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? skillInsights(d) : null, d.results.length ? insights(d) : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
 }
 
 function summary(d) {
@@ -57,6 +58,7 @@ function row(r, exam) {
     h('span', { class: 'score', style: 'min-width:96px;text-align:right;white-space:nowrap' }, r.max ? `${formatScore(r.score)}/${formatScore(r.max)}` : 'PDF', r.pending ? h('div', { class: 'caption' }, `${r.pending} a corrigir`) : null));
   if (!open) return h('div', {}, head);
   return h('div', {}, head,
+    h('a', { class: 'btn secondary', href: `/api/sessions/${r.sessionId}/report.pdf` }, 'Baixar relatório individual em PDF'),
     exam.questions.map((q, i) => {
       const answer = r.answers[q.id];
       const auto = q.type === 'choice' && q.correct;
@@ -68,6 +70,24 @@ function row(r, exam) {
             h('input', { class: 'grade-input', type: 'number', min: '0', max: String(q.weight), step: '0.25', value: r.grades[q.id] ?? '', onchange: (e) => grade(r.sessionId, q.id, e.target.value) })));
     }),
     r.status === 'submitted' && h('div', { class: 'answer-block' }, h('div', {}, h('button', { class: 'btn quiet', onclick: async () => { await api(`/api/sessions/${r.sessionId}/reopen`, { method: 'POST' }); toast('Envio reaberto'); refresh(true); } }, 'Reabrir para o aluno'))));
+}
+
+function skillInsights(d) {
+  const groups = new Map();
+  for (const q of d.exam.questions) {
+    if (!q.skill || q.type !== 'choice' || !q.correct) continue;
+    const answers = d.results.map((r) => r.answers[q.id]).filter(Boolean);
+    const item = groups.get(q.skill) || { total: 0, correct: 0 };
+    item.total += answers.length;
+    item.correct += answers.filter((a) => a === q.correct).length;
+    groups.set(q.skill, item);
+  }
+  if (!groups.size) return null;
+  return h('details', { class: 'card insights' }, h('summary', { class: 'headline' }, 'Relatório por habilidade SAEB'),
+    h('div', { class: 'stack-s', style: 'margin-top:16px' }, [...groups].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR', { numeric: true })).map(([skill, item]) => {
+      const pct = item.total ? Math.round(item.correct / item.total * 100) : null;
+      return h('div', { class: 'bar-row' }, h('div', { class: 'row between caption' }, h('strong', {}, skillLabel(skill) || skill), h('span', {}, pct === null ? 'Sem respostas' : `${pct}% · ${item.correct}/${item.total}`)), h('div', { class: 'progress' }, h('div', { style: `width:${pct || 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })));
+    })));
 }
 
 async function grade(sessionId, questionId, value) {
@@ -110,3 +130,4 @@ function insights(d) {
       h('div', { class: 'progress' }, h('div', { style: `width:${pct ?? 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })),
       top && pct !== null && pct < 70 && h('div', { class: 'caption' }, `Erro mais comum: “${top[0]}” (${top[1]})`)))));
 }
+

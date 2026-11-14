@@ -8,7 +8,7 @@ initializeThemeButton();
 const SESSION_KEY = 'atlas.session';
 const queueKey = (sessionId) => `atlas.queue.${sessionId}`;
 
-const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), scale: 1, answers: {}, pending: {}, closed: false, flushing: false, retryTimer: null, heartbeat: null };
+const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), feedback: {}, scale: 1, answers: {}, pending: {}, closed: false, flushing: false, retryTimer: null, heartbeat: null };
 const flagsKey = (sessionId) => `atlas.flags.${sessionId}`;
 const scratchKey = (sessionId) => `atlas.scratch.${sessionId}`;
 const scaleKey = 'atlas.fontscale';
@@ -64,6 +64,7 @@ async function startSession(code, number, token) {
   state.session = data.session;
   state.student = data.student;
   state.exam = data.exam;
+  state.feedback = {};
   state.closed = false;
   state.answers = data.answers;
   state.pending = readJson(queueKey(data.session.id)) || {};
@@ -125,14 +126,14 @@ function renderQuestion() {
   if (q.type === 'choice') {
     control = h('fieldset', { class: 'opts', style: 'border:0;padding:0;margin:0', 'aria-labelledby': 'q-text' },
       q.options.map((option, i) => h('label', { class: 'opt' },
-        h('input', { type: 'radio', name: q.id, value: option, checked: currentAnswer(q.id) === option, disabled: state.closed, onchange: () => setAnswer(q.id, option) }),
+        h('input', { type: 'radio', name: q.id, value: option, checked: currentAnswer(q.id) === option, disabled: state.closed || !!state.feedback[q.id], onchange: () => saveChoice(q.id, option) }),
         h('span', { class: 'letter' }, letter(i)), h('span', {}, option))));
   } else {
     let timer;
     control = h('textarea', {
       name: q.id, rows: 6, placeholder: 'Digite sua resposta', value: currentAnswer(q.id), disabled: state.closed, 'aria-labelledby': 'q-text',
-      oninput: (event) => { clearTimeout(timer); const value = event.target.value; markSaving(); timer = setTimeout(() => setAnswer(q.id, value), 500); },
-      onblur: (event) => { clearTimeout(timer); if (event.target.value !== currentAnswer(q.id)) setAnswer(q.id, event.target.value); },
+      oninput: (event) => { clearTimeout(timer); const value = event.target.value; markSaving(); timer = setTimeout(() => saveTextAnswer(q.id, value), 500); },
+      onblur: (event) => { clearTimeout(timer); if (event.target.value !== currentAnswer(q.id)) saveTextAnswer(q.id, event.target.value); },
     });
   }
   const flagged = state.flags.has(q.id);
@@ -146,6 +147,9 @@ function renderQuestion() {
         h('button', { type: 'button', 'aria-pressed': String(flagged), title: 'Marcar para revisar depois (R)', onclick: toggleFlag }, flagged ? '⚑ Revisar' : '⚐ Revisar'))),
     h('div', { class: 'q-text', id: 'q-text' }, q.text),
     control,
+    state.exam.feedback && state.feedback[q.id] && state.feedback[q.id].answer === currentAnswer(q.id) && h('div', { class: `notice ${state.feedback[q.id].correct && state.feedback[q.id].answer !== state.feedback[q.id].correct ? 'warn' : ''}` },
+      h('strong', {}, state.feedback[q.id].correct ? (state.feedback[q.id].answer === state.feedback[q.id].correct ? 'Resposta correta!' : `Resposta correta: ${state.feedback[q.id].correct}`) : 'Orientação do professor'),
+      state.feedback[q.id].explanation && h('p', {}, state.feedback[q.id].explanation)),
     h('div', { class: 'q-nav' },
       h('button', { class: 'btn secondary', type: 'button', disabled: state.index === 0, onclick: () => go(state.index - 1) }, '← Anterior'),
       h('button', { class: 'btn quiet', type: 'button', disabled: state.closed || !currentAnswer(q.id), onclick: clearAnswer }, q.type === 'choice' ? 'Limpar seleção' : 'Limpar resposta'),
@@ -212,7 +216,7 @@ document.addEventListener('keydown', (event) => {
   if (!q) return;
   if (event.key === 'ArrowRight') go(state.index + 1);
   else if (event.key === 'ArrowLeft') go(state.index - 1);
-  else if (/^[1-9]$/.test(event.key) && q.type === 'choice' && !state.closed && q.options[Number(event.key) - 1]) { setAnswer(q.id, q.options[Number(event.key) - 1]); renderQuestion(); }
+  else if (/^[1-9]$/.test(event.key) && q.type === 'choice' && !state.closed && q.options[Number(event.key) - 1]) saveChoice(q.id, q.options[Number(event.key) - 1]);
   else if (event.key.toLowerCase() === 'r') toggleFlag();
   else if (event.key === 'Escape' && !state.closed) clearAnswer();
 });
@@ -250,7 +254,29 @@ function setAnswer(qid, value) {
   state.pending[qid] = value;
   writeJson(queueKey(state.session.id), state.pending);
   updateProgress();
-  flush();
+  return flush();
+}
+
+async function saveChoice(qid, value) {
+  delete state.feedback[qid];
+  setAnswer(qid, value);
+  if (!state.exam.feedback) { renderQuestion(); return; }
+  for (let i = 0; i < 40 && qid in state.pending; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  if (qid in state.pending) return;
+  await requestFeedback(qid, value);
+}
+async function saveTextAnswer(qid, value) {
+  delete state.feedback[qid];
+  setAnswer(qid, value);
+  if (!state.exam.feedback || !value.trim()) return;
+  for (let i = 0; i < 40 && qid in state.pending; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  if (!(qid in state.pending)) await requestFeedback(qid, value);
+}
+async function requestFeedback(qid, value) {
+  try {
+    state.feedback[qid] = { answer: value, ...(await api('/api/session/feedback', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token, questionId: qid } })) };
+    if (state.questions[state.index]?.id === qid) renderQuestion();
+  } catch { /* se a conexão cair, a resposta fica salva e o feedback não é presumido */ }
 }
 
 function setStatus(kind, label) {
@@ -371,3 +397,4 @@ function finish() {
   }
   showJoin();
 })();
+

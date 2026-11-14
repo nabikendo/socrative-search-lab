@@ -1,6 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 // Reconstrói as linhas do PDF agrupando os trechos pela posição vertical.
 export async function extractPdfText(file) {
@@ -20,3 +21,4 @@ export async function extractPdfText(file) {
   }
   return pages.join('\n');
 }
+

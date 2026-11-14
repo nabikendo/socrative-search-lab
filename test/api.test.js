@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../server.mjs';
 import { parseRosterText } from '../shared/roster.js';
-import { scoreSession, normalizeQuestions } from '../shared/exam.js';
+import { scoreSession, normalizeQuestions, parsePdfQuestionText } from '../shared/exam.js';
+import { openStore } from '../lib/store.mjs';
 
 let app, base, admin;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-'));
@@ -54,11 +55,38 @@ test('painel exige PIN e limita tentativas', async () => {
   assert.equal((await call('/api/auth/login', { method: 'POST', body: { pin: '000000' } })).status, 403);
 });
 
+test('turmas são separadas e aceitam numeração repetida sem misturar listas', async () => {
+  const first = await call('/api/classes', { method: 'POST', cookie: admin, body: { name: 'Turma A', roster: [{ number: '3', name: 'Ana' }] } });
+  const second = await call('/api/classes', { method: 'POST', cookie: admin, body: { name: 'Turma B', roster: [{ number: '3', name: 'Beatriz' }] } });
+  assert.equal(first.status, 200); assert.equal(second.status, 200);
+  assert.equal((await call(`/api/classes/${first.data.class.id}/roster`, { cookie: admin })).data.roster[0].name, 'Ana');
+  assert.equal((await call(`/api/classes/${second.data.class.id}/roster`, { cookie: admin })).data.roster[0].name, 'Beatriz');
+  const exam = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'Prova da Turma B', classId: second.data.class.id, questions: [{ type: 'choice', text: 'Quanto é 2+2?', options: ['3', '4'], correct: '4', skill: 'D19', explanation: 'Somamos duas unidades duas vezes.' }] } });
+  assert.equal(exam.data.exam.classId, second.data.class.id);
+  const bank = await call('/api/question-bank', { method: 'POST', cookie: admin, body: exam.data.exam.questions[0] });
+  assert.equal(bank.status, 200);
+  assert.equal((await call('/api/question-bank', { cookie: admin })).data.questions[0].skill, 'D19');
+  await call(`/api/question-bank/${(await call('/api/question-bank', { cookie: admin })).data.questions[0].bankId}`, { method: 'DELETE', cookie: admin });
+});
+
+test('migra lista global antiga para uma turma sem apagar os registros', () => {
+  const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-migrate-'));
+  const before = openStore(legacyDir);
+  before.replaceRoster([{ number: '8', name: 'Estudante de teste', className: '14.02' }]);
+  before.close();
+  const after = openStore(legacyDir);
+  const turma = after.listClasses()[0];
+  assert.equal(turma.name, '14.02');
+  assert.equal(after.classRoster(turma.id)[0].name, 'Estudante de teste');
+  after.close();
+  fs.rmSync(legacyDir, { recursive: true, force: true });
+});
+
 let examId, code, student;
 test('fluxo completo do aluno, sem vazar gabarito', async () => {
   await call('/api/roster', { method: 'POST', cookie: admin, body: { roster: [{ number: '3', name: 'Aluno <img src=x onerror=alert(1)>', className: '13.01' }, { number: '5', name: 'Aluno Dois' }] } });
-  const created = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'T', questions: [
-    { type: 'choice', text: 'Q?', options: ['A', 'B'], correct: 'B', weight: 2 }, { type: 'text', text: 'Livre', weight: 1 }] } });
+  const created = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'T', feedback: true, questions: [
+    { type: 'choice', text: 'Q?', options: ['A', 'B'], correct: 'B', explanation: 'Pelo conceito da questão.', skill: 'D1', weight: 2 }, { type: 'text', text: 'Livre', explanation: 'Compare sua resposta com os conceitos estudados.', weight: 1 }] } });
   assert.equal(created.status, 200);
   examId = created.data.exam.id;
   assert.equal((await call('/api/open-exam')).data.exam, null);
@@ -71,6 +99,8 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   const start = await call('/api/session/start', { method: 'POST', body: { code, number: '3' } });
   assert.equal(start.status, 200);
   assert.ok(!JSON.stringify(start.data).includes('"correct"'), 'gabarito não pode ir ao aluno');
+  assert.ok(!JSON.stringify(start.data).includes('Pelo conceito'), 'explicação não pode ir antes da resposta');
+  assert.ok(!JSON.stringify(start.data).includes('Compare sua resposta'), 'orientação não pode ir antes da resposta');
   student = start.data.session;
   assert.equal((await call('/api/session/start', { method: 'POST', body: { code, number: '3' } })).data.error, 'session_in_use');
   assert.equal((await call('/api/session/start', { method: 'POST', body: { code, number: '3', token: student.token } })).status, 200);
@@ -79,7 +109,11 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   const send = (questionId, answer) => call('/api/answer', { method: 'POST', body: { sessionId: student.id, token: student.token, questionId, answer } });
   assert.equal((await send(q1.id, 'Z')).status, 400);
   assert.equal((await send(q1.id, 'B')).status, 200);
+  const feedback = await call('/api/session/feedback', { method: 'POST', body: { sessionId: student.id, token: student.token, questionId: q1.id } });
+  assert.equal(feedback.status, 200); assert.equal(feedback.data.correct, 'B'); assert.equal(feedback.data.explanation, 'Pelo conceito da questão.');
   assert.equal((await send(q2.id, '=HYPERLINK("http://x")')).status, 200);
+  const textFeedback = await call('/api/session/feedback', { method: 'POST', body: { sessionId: student.id, token: student.token, questionId: q2.id } });
+  assert.equal(textFeedback.data.correct, null); assert.match(textFeedback.data.explanation, /Compare sua resposta/);
   assert.equal((await call('/api/answer', { method: 'POST', body: { sessionId: student.id, token: 'errado', questionId: q1.id, answer: 'A' } })).status, 401);
 
   const results = (await call(`/api/exams/${examId}/results`, { cookie: admin })).data;
@@ -90,6 +124,11 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   assert.equal((await call('/api/grade', { method: 'POST', cookie: admin, body: { sessionId: student.id, questionId: q2id, score: 0.5 } })).status, 200);
 
   assert.equal((await call('/api/session/submit', { method: 'POST', body: { sessionId: student.id, token: student.token } })).status, 200);
+  const report = await fetch(`${base}/api/sessions/${student.id}/report.pdf`, { headers: { cookie: admin } });
+  assert.equal(report.headers.get('content-type'), 'application/pdf');
+  const reportBytes = Buffer.from(await report.arrayBuffer());
+  assert.equal(reportBytes.toString('latin1', 0, 5), '%PDF-');
+  assert.ok(reportBytes.toString('latin1').endsWith('%%EOF'));
   assert.equal((await call('/api/session/start', { method: 'POST', body: { code, number: '3', token: student.token } })).data.error, 'already_submitted');
 });
 
@@ -158,6 +197,24 @@ test('regras de nota', () => {
   assert.deepEqual([r.score, r.max, r.pending], [2, 3, 1]);
 });
 
+test('habilidade mantém a etapa SAEB e descarta código fora da matriz', () => {
+  const normalized = normalizeQuestions([
+    { type: 'choice', text: 'Q1', options: ['A', 'B'], correct: 'A', skill: 'SAEB5-D28' },
+    { type: 'choice', text: 'Q2', options: ['A', 'B'], correct: 'A', skill: 'SAEB5-D29' },
+  ]);
+  assert.equal(normalized[0].skill, 'SAEB5-D28');
+  assert.equal(normalized[1].skill, undefined);
+});
+
+test('extrai questões numeradas de um PDF textual para revisão, sem inventar gabarito', () => {
+  const questions = parsePdfQuestionText('1. Quanto é 2 + 2?\nA) 3\nB) 4\n\n2) Explique o raciocínio.');
+  assert.equal(questions.length, 2);
+  assert.equal(questions[0].type, 'choice');
+  assert.deepEqual(questions[0].options, ['3', '4']);
+  assert.equal(questions[0].correct, undefined);
+  assert.equal(questions[1].type, 'text');
+});
+
 test('embaralhar: ordem estável por aluno, preserva todas as alternativas e vai ao aluno', async () => {
   const { orderForStudent, seededShuffle } = await import('../shared/shuffle.js');
   const qs = Array.from({ length: 8 }, (_, i) => ({ id: `q${i}`, type: 'choice', text: `Q${i}`, options: ['a', 'b', 'c', 'd'] }));
@@ -210,3 +267,4 @@ test('diagnóstico de rede: exige PIN e reconhece aparelhos que abriram a págin
   assert.ok(Array.isArray(before.interfaces) && Array.isArray(before.urls) && Array.isArray(before.devices));
   assert.equal(before.devices.length, 0); // o próprio computador (127.0.0.1) não conta como aparelho de aluno
 });
+

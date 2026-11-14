@@ -1,6 +1,6 @@
 {
   "name": "atlas-provas",
-  "version": "1.2.0-beta.1",
+  "version": "1.2.0-beta.2",
   "private": true,
   "type": "module",
   "description": "Atlas: provas em rede local, sem Internet durante a aula.",
@@ -72,3 +72,4 @@
     }
   }
 }
+

@@ -23,7 +23,7 @@ function splitDelimited(text, delimiter) {
 
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
 
-export function parseRosterText(text) {
+export function parseRosterTextDetailed(text) {
   const rows = [];
   const source = String(text);
   // O Diário de Classe SEDUC-TO informa turma no cabeçalho, enquanto as
@@ -57,8 +57,12 @@ export function parseRosterText(text) {
     if (!name || NOT_A_STUDENT.test(name) || /^(?:n[º°.]?\s*)?aluno$/i.test(name)) continue;
     rows.push({ number: String(Number(number)), name, className: clean(className) });
   }
-  return dedupeRoster(rows);
+  const counts = new Map();
+  for (const row of rows) counts.set(row.number, (counts.get(row.number) || 0) + 1);
+  return { rows: dedupeRoster(rows), duplicates: [...counts].filter(([, count]) => count > 1).map(([number, count]) => ({ number, count })) };
 }
+
+export function parseRosterText(text) { return parseRosterTextDetailed(text).rows; }
 
 // Linhas de planilha (XLSX): [número, nome, turma?], com ou sem cabeçalho.
 export function parseRosterRows(rows) {
@@ -75,3 +79,4 @@ export function parseRosterRows(rows) {
 export function dedupeRoster(rows) {
   return [...new Map(rows.map((row) => [row.number, row])).values()];
 }
+

@@ -1,33 +1,45 @@
 import qrcode from 'qrcode-generator';
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural } from '../lib/dom.js';
-import { questionId, parseQuestionsText } from '../../shared/exam.js';
+import { questionId, parseQuestionsText, parsePdfQuestionText } from '../../shared/exam.js';
+import { SAEB_LEVELS, SAEB_SKILLS, skillLabel } from '../../shared/skills.js';
 
 let root;
 let timer;
-const state = { exams: [], model: null, dirty: false, urls: [], live: null, error: '' };
+const state = { exams: [], classes: [], model: null, dirty: false, urls: [], live: null, error: '' };
 
 export function mount(el) { root = el; }
 export async function activate() {
   state.urls = (await api('/api/network').catch(() => ({ urls: [] }))).urls;
+  state.classes = (await api('/api/classes')).classes;
   await loadList();
   const open = state.exams.find((e) => e.status === 'open');
   await select(state.model?.id && state.exams.some((e) => e.id === state.model.id) ? state.model.id : (open || state.exams[0])?.id);
   timer = setInterval(pollLive, 5000);
 }
 export function deactivate() { clearInterval(timer); }
+window.addEventListener('atlas:add-bank-question', async (event) => {
+  const m = state.model;
+  if (!m?.id) { toast('Salve a prova primeiro para adicionar questões do banco.'); return; }
+  if (m.locked || m.status === 'open') { toast('Encerre ou duplique a prova antes de alterar as questões.'); return; }
+  m.pdfOnly = false;
+  m.questions.push({ ...event.detail, id: questionId(), correctIndex: event.detail.correct ? event.detail.options.indexOf(event.detail.correct) : null });
+  state.dirty = true;
+  try { await save(); toast('Questão adicionada à prova'); }
+  catch (error) { toast(error.message); }
+});
 
 const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, document: null, locked: false, shuffle: false,
-  pdfOnly: true, questions: [newQuestion('choice')] });
+  pdfOnly: true, classId: state.classes[0]?.id || null, feedback: false, questions: [newQuestion('choice')] });
 function newQuestion(type) {
   return { id: questionId(), type, text: '', options: type === 'choice' ? ['', ''] : [], correctIndex: null, weight: 1 };
 }
 const fromServer = (exam, locked) => ({ ...exam, locked, pdfOnly: !exam.questions.length, questions: exam.questions.map((q) => ({ ...q, correctIndex: q.correct ? q.options.indexOf(q.correct) : null })) });
 function payload() {
-  return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, questions: state.model.pdfOnly ? [] : state.model.questions.map((q) => {
+  return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, classId: state.model.classId || null, feedback: !!state.model.feedback, questions: state.model.pdfOnly ? [] : state.model.questions.map((q) => {
     const options = q.options.map((o) => o.trim());
     const correct = q.type === 'choice' && q.correctIndex !== null ? options[q.correctIndex] : undefined;
-    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct ? { correct } : {}), weight: Number(q.weight) || 1 };
+    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct ? { correct } : {}), weight: Number(q.weight) || 1, skill: q.skill || '', explanation: q.explanation || '' };
   }) };
 }
 
@@ -81,9 +93,11 @@ function render() {
 
     h('div', { class: 'card stack-s' },
       h('label', { class: 'field' }, h('span', {}, 'Título'), h('input', { value: m.title, placeholder: 'Ex.: Ligações químicas — 1º bimestre', oninput: (e) => { m.title = e.target.value; touch(); } })),
+      h('label', { class: 'field' }, h('span', {}, 'Turma'), h('select', { value: m.classId || '', disabled: m.locked, onchange: (e) => { m.classId = e.target.value || null; touch(); } }, h('option', { value: '' }, 'Lista geral'), state.classes.map((c) => h('option', { value: c.id }, c.name)))),
       h('label', { class: 'option', style: 'border-radius:14px' },
         h('input', { type: 'checkbox', checked: !!m.shuffle, disabled: m.locked, onchange: (e) => { m.shuffle = e.target.checked; touch(); } }),
-        h('span', {}, h('strong', {}, 'Embaralhar para cada aluno'), h('span', { class: 'caption', style: 'display:block' }, 'Cada aluno vê as questões e as alternativas em ordem diferente. Evite alternativas como “todas as anteriores”.')))),
+        h('span', {}, h('strong', {}, 'Embaralhar para cada aluno'), h('span', { class: 'caption', style: 'display:block' }, 'Cada aluno vê as questões e as alternativas em ordem diferente. Evite alternativas como “todas as anteriores”.'))),
+      h('label', { class: 'option', style: 'border-radius:14px' }, h('input', { type: 'checkbox', checked: !!m.feedback, disabled: m.locked, onchange: (e) => { m.feedback = e.target.checked; touch(); } }), h('span', {}, h('strong', {}, 'Mostrar feedback após cada questão'), h('span', { class: 'caption', style: 'display:block' }, 'Mostra gabarito e explicação depois que o aluno responder.')))),
 
     ...(m.pdfOnly ? [] : m.questions.map((q, i) => questionCard(q, i))),
 
@@ -137,7 +151,18 @@ function questionCard(q, index) {
         !lock && q.options.length > 2 && h('button', { class: 'pill-btn', 'aria-label': 'Remover alternativa', onclick: () => { q.options.splice(i, 1); q.correctIndex = q.correctIndex === i ? null : q.correctIndex > i ? q.correctIndex - 1 : q.correctIndex; touch(); render(); } }, '×'))),
       !lock && q.options.length < 10 && h('div', {}, h('button', { class: 'btn quiet', onclick: () => { q.options.push(''); touch(); render(); } }, 'Adicionar alternativa')),
       h('p', { class: 'caption' }, q.correctIndex === null ? 'Marque a correta para correção automática; sem marcação, a nota é manual.' : 'Correção automática ativada.')),
-    h('label', { class: 'row caption' }, 'Peso', h('input', { type: 'number', min: '0.25', max: '100', step: '0.25', value: q.weight, disabled: lock, style: 'width:90px;padding:8px 10px;font-size:15px', oninput: (e) => { q.weight = e.target.value; touch(); } })));
+    h('div', { class: 'row' },
+      h('label', { class: 'field grow' }, h('span', {}, 'Habilidade SAEB de Matemática'), h('select', { value: q.skill || '', disabled: lock, onchange: (e) => { q.skill = e.target.value; touch(); } },
+        h('option', { value: '' }, 'Sem habilidade vinculada'),
+        q.skill && /^D\d{1,2}$/.test(q.skill) && h('option', { value: q.skill }, skillLabel(q.skill)),
+        ...SAEB_LEVELS.map((level) => h('optgroup', { label: level.label }, SAEB_SKILLS.filter((item) => item.id.startsWith(`${level.id}-`)).map((item) => h('option', { value: item.id }, item.label)))))),
+      h('label', { class: 'field' }, h('span', {}, 'Peso'), h('input', { type: 'number', min: '0.25', max: '100', step: '0.25', value: q.weight, disabled: lock, style: 'width:90px', oninput: (e) => { q.weight = e.target.value; touch(); } }))),
+    h('label', { class: 'field' }, h('span', {}, 'Explicação da resposta correta'), h('textarea', { value: q.explanation || '', disabled: lock, placeholder: 'Opcional: será exibida ao estudante se o feedback estiver ativado.', oninput: (e) => { q.explanation = e.target.value; touch(); } })),
+    !lock && h('button', { class: 'btn quiet', type: 'button', onclick: guard(async () => {
+      const raw = payload().questions[index];
+      if (!raw.text?.trim()) throw new Error('Escreva o enunciado antes de salvar no banco de questões.');
+      await api('/api/question-bank', { method: 'POST', body: raw }); toast('Questão salva no banco');
+    }) }, 'Salvar questão no banco'));
 }
 
 function quickText(m) {
@@ -189,5 +214,17 @@ function documentCard(m) {
     h('h2', { class: 'headline' }, 'Documento da prova'),
       h('p', { class: 'sub' }, m.document ? `${m.document.name} · ${(m.document.size / 1048576).toFixed(1)} MB` : m.pdfOnly ? 'Importe o PDF que contém as questões. A lista de alunos abrirá o arquivo e poderá entregar a prova sem digitar as questões no Atlas.' : 'Opcional: anexe um PDF ou DOCX com textos e figuras. O aluno vê o arquivo junto das questões.'),
     h('div', { class: 'row' }, picker, h('label', { class: 'btn secondary', for: 'doc-file' }, m.document ? 'Trocar arquivo' : 'Anexar PDF ou DOCX'),
+      m.document?.kind === 'pdf' && !m.locked && h('button', { class: 'btn secondary', onclick: guard(async () => {
+        const response = await fetch(`/api/document/${m.document.id}`);
+        if (!response.ok) throw new Error('Não consegui abrir o PDF para extrair as questões.');
+        const { extractPdfText } = await import('./pdf-text.js');
+        const extracted = parsePdfQuestionText(await extractPdfText(await response.blob()));
+        if (!extracted.length) throw new Error('Não encontrei questões numeradas no texto deste PDF. Se ele for digitalizado como imagem, use a opção “As questões estão em um PDF” ou digite as questões.');
+        m.pdfOnly = false;
+        m.questions = extracted.map((q) => ({ ...q, correctIndex: null }));
+        touch(); await save();
+        toast(`${extracted.length} questões extraídas. Revise os enunciados e gabaritos antes de abrir a prova.`);
+      }) }, 'Extrair questões para revisar'),
       m.document && h('button', { class: 'btn danger', onclick: guard(async () => { await api(`/api/exams/${m.id}/document`, { method: 'DELETE' }); m.document = null; }) }, 'Remover')));
 }
+
