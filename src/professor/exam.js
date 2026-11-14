@@ -6,11 +6,13 @@ import { SAEB_LEVELS, SAEB_SKILLS, skillLabel } from '../../shared/skills.js';
 
 let root;
 let timer;
-const state = { exams: [], classes: [], model: null, dirty: false, urls: [], live: null, error: '' };
+const state = { exams: [], classes: [], model: null, dirty: false, urls: [], aliases:[], live: null, error: '', scheduleStart: '', scheduleEnd: '' };
 
 export function mount(el) { root = el; }
 export async function activate() {
-  state.urls = (await api('/api/network').catch(() => ({ urls: [] }))).urls;
+  const network=await api('/api/network').catch(() => ({ urls: [], aliases:[] }));
+  state.urls = network.urls;
+  state.aliases = network.aliases || [];
   state.classes = (await api('/api/classes')).classes;
   await loadList();
   const open = state.exams.find((e) => e.status === 'open');
@@ -23,7 +25,7 @@ window.addEventListener('atlas:add-bank-question', async (event) => {
   if (!m?.id) { toast('Salve a prova primeiro para adicionar questões do banco.'); return; }
   if (m.locked || m.status === 'open') { toast('Encerre ou duplique a prova antes de alterar as questões.'); return; }
   m.pdfOnly = false;
-  m.questions.push({ ...event.detail, id: questionId(), correctIndex: event.detail.correct ? event.detail.options.indexOf(event.detail.correct) : null });
+  m.questions.push({ ...event.detail, id: questionId(), correctIndex: typeof event.detail.correct==='string'?event.detail.options.indexOf(event.detail.correct):null, correctIndexes:Array.isArray(event.detail.correct)?event.detail.correct.map((value)=>event.detail.options.indexOf(value)).filter((i)=>i>=0):[], numericAnswer:event.detail.type==='numeric'?event.detail.correct:'' });
   state.dirty = true;
   try { await save(); toast('Questão adicionada à prova'); }
   catch (error) { toast(error.message); }
@@ -32,14 +34,14 @@ window.addEventListener('atlas:add-bank-question', async (event) => {
 const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, document: null, locked: false, shuffle: false,
   pdfOnly: true, classId: state.classes[0]?.id || null, feedback: false, questions: [newQuestion('choice')] });
 function newQuestion(type) {
-  return { id: questionId(), type, text: '', options: type === 'choice' ? ['', ''] : [], correctIndex: null, weight: 1 };
+  return { id: questionId(), type, text: '', options: ['choice','multi'].includes(type) ? ['', ''] : [], correctIndex: null, correctIndexes:[], numericAnswer:'', tolerance:0, image:'', imageAlt:'', topic:'',difficulty:'',weight: 1 };
 }
-const fromServer = (exam, locked) => ({ ...exam, locked, pdfOnly: !exam.questions.length, questions: exam.questions.map((q) => ({ ...q, correctIndex: q.correct ? q.options.indexOf(q.correct) : null })) });
+const fromServer = (exam, locked) => ({ ...exam, locked, pdfOnly: !exam.questions.length, questions: exam.questions.map((q) => ({ ...q, correctIndex: typeof q.correct==='string'&&q.options?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((answer)=>q.options.indexOf(answer)).filter((i)=>i>=0):[], numericAnswer:q.type==='numeric'?q.correct:'', tolerance:q.tolerance ?? 0 })) });
 function payload() {
   return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, classId: state.model.classId || null, feedback: !!state.model.feedback, questions: state.model.pdfOnly ? [] : state.model.questions.map((q) => {
     const options = q.options.map((o) => o.trim());
-    const correct = q.type === 'choice' && q.correctIndex !== null ? options[q.correctIndex] : undefined;
-    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct ? { correct } : {}), weight: Number(q.weight) || 1, skill: q.skill || '', explanation: q.explanation || '' };
+    const correct = q.type === 'choice' && q.correctIndex !== null ? options[q.correctIndex] : q.type==='multi' ? (q.correctIndexes||[]).map((i)=>options[i]).filter(Boolean) : q.type==='numeric' && q.numericAnswer!=='' ? Number(String(q.numericAnswer).replace(',','.')) : undefined;
+    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct!==undefined&&correct!=='' ? { correct } : {}), ...(q.type==='numeric'?{tolerance:Number(q.tolerance)||0}:{}), image:q.image||'',imageAlt:q.imageAlt||'',topic:q.topic||'',difficulty:q.difficulty||'',weight: Number(q.weight) || 1, skill: q.skill || '', explanation: q.explanation || '' };
   }) };
 }
 
@@ -48,6 +50,8 @@ async function select(id) {
   state.error = '';
   state.dirty = false;
   state.live = null;
+  state.scheduleStart = '';
+  state.scheduleEnd = '';
   if (id) {
     const { exam } = await api(`/api/exams/${id}`);
     state.model = fromServer(exam, state.exams.find((e) => e.id === id)?.sessions > 0);
@@ -57,7 +61,7 @@ async function select(id) {
 }
 async function pollLive() {
   const m = state.model;
-  if (!m?.id || m.status !== 'open' || root.hidden) return;
+  if (!m?.id || !['open','paused'].includes(m.status) || root.hidden) return;
   try {
     const { results } = await api(`/api/exams/${m.id}/results`);
     state.live = { online: results.filter((r) => r.online).length, submitted: results.filter((r) => r.status === 'submitted').length, total: results.length };
@@ -79,6 +83,8 @@ const touch = () => { state.dirty = true; const b = root.querySelector('#save');
 function render() {
   const m = state.model;
   const isOpen = m.status === 'open';
+  const isPaused = m.status === 'paused';
+  const isScheduled = m.status === 'scheduled';
   clear(root, h('div', { class: 'stack' },
     h('div', { class: 'row between' },
       h('h1', { class: 'title' }, 'Prova'),
@@ -89,6 +95,9 @@ function render() {
         h('button', { class: 'btn secondary', onclick: () => { state.model = blank(); state.dirty = false; render(); } }, 'Nova'))),
 
     isOpen && openBanner(m),
+    isPaused && h('div',{class:'card stack-s'},h('div',{class:'row between'},h('strong',{},'Prova pausada'),h('span',{class:'hero-code'},m.accessCode)),h('p',{class:'sub'},'Os alunos conectados estão impedidos de responder. Retome quando estiver pronto.'),h('button',{class:'btn secondary',onclick:()=>window.open(`/projetor?exam=${encodeURIComponent(m.id)}`,'_blank','noopener')},'Abrir acompanhamento no projetor')),
+    isScheduled && h('div', { class:'notice' }, `Esta prova abrirá automaticamente em ${new Date(m.scheduledStart).toLocaleString('pt-BR')}${m.scheduledEnd ? ` e encerrará em ${new Date(m.scheduledEnd).toLocaleString('pt-BR')}` : ''}.`),
+    m.id && !isOpen && !isPaused && scheduleCard(m),
     m.locked && h('div', { class: 'notice' }, 'Esta prova já tem respostas, então as questões estão travadas. Para mudar algo, duplique a prova.'),
 
     h('div', { class: 'card stack-s' },
@@ -111,25 +120,55 @@ function render() {
     state.error && h('p', { class: 'error', role: 'alert' }, state.error),
     h('div', { class: 'row' },
       h('button', { id: 'save', class: 'btn', disabled: !state.dirty && !!m.id, onclick: guard(async () => { await save(); toast('Prova salva'); }) }, 'Salvar'),
-      isOpen
-        ? h('button', { class: 'btn secondary', onclick: guard(async () => { await api(`/api/exams/${m.id}/close`, { method: 'POST' }); await loadList(); await select(m.id); }) }, 'Encerrar prova')
+      isPaused
+        ? h('div',{class:'row'},h('button',{class:'btn secondary',onclick:guard(async()=>{await api(`/api/exams/${m.id}/resume`,{method:'POST'});await loadList();await select(m.id);toast('Prova retomada para toda a turma');})},'Retomar prova'),h('button',{class:'btn danger',onclick:guard(async()=>{await api(`/api/exams/${m.id}/close`,{method:'POST'});await loadList();await select(m.id);toast('Prova encerrada');})},'Encerrar prova'))
+        : isOpen
+        ? h('div',{class:'row'},h('button',{class:'btn quiet',onclick:guard(async()=>{await api(`/api/exams/${m.id}/pause`,{method:'POST'});await loadList();await select(m.id);toast('Prova pausada para toda a turma');})},'Pausar turma'),h('button',{class:'btn secondary',onclick:guard(async()=>{await api(`/api/exams/${m.id}/close`,{method:'POST'});await loadList();await select(m.id);})},'Encerrar prova'))
+        : isScheduled
+        ? h('button', { class:'btn secondary', onclick:guard(async () => { await api(`/api/exams/${m.id}/schedule/cancel`, { method:'POST' }); await loadList(); await select(m.id); toast('Agendamento cancelado'); }) }, 'Cancelar agendamento')
         : h('button', { class: 'btn secondary', onclick: guard(async () => { const { id } = state.dirty || !m.id ? await save() : m; const { code } = await api(`/api/exams/${id}/open`, { method: 'POST' }); await loadList(); await select(id); toast(`Prova aberta · código ${code}`); }) }, 'Abrir para os alunos'),
-      m.id && h('button', { class: 'btn quiet', onclick: guard(async () => { state.model = { ...blank(), title: `${m.title} (cópia)`, questions: payloadQuestions(m).map((q) => ({ ...q, correctIndex: q.correct ? q.options.indexOf(q.correct) : null })) }; state.dirty = true; }) }, 'Duplicar'),
-      m.id && !isOpen && h('button', { class: 'btn danger', onclick: guard(async () => { if (!confirm('Excluir esta prova?')) return; await api(`/api/exams/${m.id}`, { method: 'DELETE' }); await loadList(); await select(state.exams[0]?.id); }) }, 'Excluir'))));
+      m.id && h('button', { class: 'btn quiet', onclick: guard(async () => { state.model = { ...blank(), title: `${m.title} (cópia)`, questions: payloadQuestions(m).map((q) => ({ ...q, correctIndex: typeof q.correct==='string'?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((value)=>q.options.indexOf(value)).filter((i)=>i>=0):[],numericAnswer:q.type==='numeric'?q.correct:'' })) }; state.dirty = true; }) }, 'Duplicar'),
+      m.id && !isOpen && !isPaused && h('button', { class: 'btn danger', onclick: guard(async () => { if (!confirm('Excluir esta prova?')) return; await api(`/api/exams/${m.id}`, { method: 'DELETE' }); await loadList(); await select(state.exams[0]?.id); }) }, 'Excluir'))));
 }
 const payloadQuestions = (m) => payload().questions.map((q) => ({ ...q, id: questionId() }));
 
 function openBanner(m) {
-  const url = `${state.urls[0] || location.origin}/prova`;
+  const url = `${state.aliases[0] || state.urls[0] || location.origin}/prova`;
   const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
   return h('div', { class: 'card row', style: 'gap:28px' },
     h('div', { class: 'qr', 'aria-label': `QR Code de ${url}`, innerHTML: qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) }),
     h('div', { class: 'stack-s grow' },
       h('span', { class: 'eyebrow' }, 'Prova aberta · código'),
       h('div', { class: 'hero-code' }, m.accessCode),
-      h('p', {}, 'Alunos abrem ', h('strong', {}, url)),
-      state.urls.length > 1 && h('p', { class: 'caption' }, 'Outros endereços: ', state.urls.slice(1).map((u) => `${u}/prova`).join(' · ')),
+      h('p', {}, 'Endereço curto neste Wi-Fi: ', h('strong', {}, url)),
+      (state.aliases.length + state.urls.length > 1) && h('p', { class: 'caption' }, 'Se o nome curto não abrir no aparelho, use: ', [...state.aliases.slice(1), ...state.urls].map((u) => `${u}/prova`).join(' · ')),
+      h('button', { class:'btn secondary', type:'button', onclick:() => window.open(`/projetor?exam=${encodeURIComponent(m.id)}`, '_blank', 'noopener') }, 'Abrir acompanhamento no projetor'),
       h('span', { id: 'live', class: 'badge ok' }, liveText())));
+}
+
+function localDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return '';
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.valueOf() - offset).toISOString().slice(0, 16);
+}
+
+function scheduleCard(m) {
+  return h('div', { class:'card stack-s' },
+    h('h2', { class:'headline' }, 'Agendar aplicação'),
+    h('p', { class:'sub' }, 'O Atlas abrirá a prova neste computador no horário escolhido. Mantenha o Atlas ligado e conectado à rede.'),
+    h('div', { class:'row' },
+      h('label', { class:'field' }, h('span', {}, 'Início'), h('input', { type:'datetime-local', required:true, value:state.scheduleStart || localDateTime(m.scheduledStart), oninput:(e) => { state.scheduleStart=e.target.value; } })),
+      h('label', { class:'field' }, h('span', {}, 'Encerramento (opcional)'), h('input', { type:'datetime-local', value:state.scheduleEnd || localDateTime(m.scheduledEnd), oninput:(e) => { state.scheduleEnd=e.target.value; } }))),
+    !m.scheduledStart && h('button', { class:'btn secondary', onclick:guard(async () => {
+      if (!state.scheduleStart) throw new Error('Escolha o horário de início.');
+      const startAt = new Date(state.scheduleStart);
+      const endAt = state.scheduleEnd ? new Date(state.scheduleEnd) : null;
+      if (Number.isNaN(startAt.valueOf()) || (state.scheduleEnd && Number.isNaN(endAt.valueOf()))) throw new Error('Confira os horários informados.');
+      await api(`/api/exams/${m.id}/schedule`, { method:'POST', body:{ startAt:startAt.toISOString(), endAt:endAt?.toISOString() || null } });
+      await loadList(); await select(m.id); toast('Prova agendada');
+    }) }, 'Salvar agendamento'));
 }
 
 function questionCard(q, index) {
@@ -139,24 +178,37 @@ function questionCard(q, index) {
     h('div', { class: 'q-head' },
       h('span', { class: 'eyebrow' }, `Questão ${index + 1}`),
       h('div', { class: 'row' },
-        !lock && h('div', { class: 'segmented' },
-          h('button', { type: 'button', 'aria-pressed': String(q.type === 'choice'), onclick: () => { q.type = 'choice'; if (q.options.length < 2) q.options = ['', '']; touch(); render(); } }, 'Múltipla escolha'),
-          h('button', { type: 'button', 'aria-pressed': String(q.type === 'text'), onclick: () => { q.type = 'text'; touch(); render(); } }, 'Aberta')),
+        !lock && h('select',{ 'aria-label':`Tipo da questão ${index+1}`, value:q.type, onchange:(e)=>{q.type=e.target.value;if(['choice','multi'].includes(q.type)&&q.options.length<2)q.options=['',''];touch();render();}},
+          h('option',{value:'choice'},'Uma alternativa correta'),h('option',{value:'multi'},'Várias alternativas corretas'),h('option',{value:'numeric'},'Resposta numérica'),h('option',{value:'text'},'Resposta aberta')),
         !lock && m.questions.length > 1 && h('button', { class: 'pill-btn', 'aria-label': 'Remover questão', onclick: () => { m.questions.splice(index, 1); touch(); render(); } }, '×'))),
     h('textarea', { value: q.text, disabled: lock, placeholder: 'Enunciado', 'aria-label': `Enunciado da questão ${index + 1}`, oninput: (e) => { q.text = e.target.value; touch(); } }),
-    q.type === 'choice' && h('div', { class: 'stack-s' },
+    ['choice','multi'].includes(q.type) && h('div', { class: 'stack-s' },
       q.options.map((option, i) => h('div', { class: 'opt-row' },
-        h('input', { type: 'radio', name: `c-${q.id}`, checked: q.correctIndex === i, disabled: lock, title: 'Resposta correta', 'aria-label': `Alternativa ${i + 1} é a correta`, onchange: () => { q.correctIndex = i; touch(); } }),
+        h('input', { type: q.type==='choice'?'radio':'checkbox', name: `c-${q.id}`, checked: q.type==='choice'?q.correctIndex===i:q.correctIndexes.includes(i), disabled: lock, title: 'Resposta correta', 'aria-label': `Alternativa ${i + 1} é correta`, onchange: () => { if(q.type==='choice')q.correctIndex=i;else if(q.correctIndexes.includes(i))q.correctIndexes=q.correctIndexes.filter((x)=>x!==i);else q.correctIndexes.push(i);touch(); } }),
         h('input', { type: 'text', value: option, disabled: lock, placeholder: `Alternativa ${i + 1}`, oninput: (e) => { q.options[i] = e.target.value; touch(); } }),
-        !lock && q.options.length > 2 && h('button', { class: 'pill-btn', 'aria-label': 'Remover alternativa', onclick: () => { q.options.splice(i, 1); q.correctIndex = q.correctIndex === i ? null : q.correctIndex > i ? q.correctIndex - 1 : q.correctIndex; touch(); render(); } }, '×'))),
+        !lock && q.options.length > 2 && h('button', { class: 'pill-btn', 'aria-label': 'Remover alternativa', onclick: () => { q.options.splice(i, 1); q.correctIndex = q.correctIndex === i ? null : q.correctIndex > i ? q.correctIndex - 1 : q.correctIndex; q.correctIndexes=q.correctIndexes.filter((x)=>x!==i).map((x)=>x>i?x-1:x); touch(); render(); } }, '×'))),
       !lock && q.options.length < 10 && h('div', {}, h('button', { class: 'btn quiet', onclick: () => { q.options.push(''); touch(); render(); } }, 'Adicionar alternativa')),
-      h('p', { class: 'caption' }, q.correctIndex === null ? 'Marque a correta para correção automática; sem marcação, a nota é manual.' : 'Correção automática ativada.')),
+      h('p', { class: 'caption' }, q.type==='choice' ? (q.correctIndex === null ? 'Marque a correta para correção automática; sem marcação, a nota é manual.' : 'Correção automática ativada.') : `${q.correctIndexes.length} alternativa(s) correta(s) marcada(s).`)),
+    q.type==='numeric' && h('div',{class:'row'},
+      h('label',{class:'field'},h('span',{},'Resposta correta'),h('input',{type:'number',step:'any',value:q.numericAnswer,disabled:lock,oninput:(e)=>{q.numericAnswer=e.target.value;touch();}})),
+      h('label',{class:'field'},h('span',{},'Margem de tolerância'),h('input',{type:'number',min:'0',step:'any',value:q.tolerance,disabled:lock,oninput:(e)=>{q.tolerance=e.target.value;touch();}}))),
+    h('div',{class:'stack-s'},
+      h('label',{class:'field'},h('span',{},'Imagem da questão (opcional)'),h('input',{type:'file',accept:'image/png,image/jpeg,image/webp',disabled:lock,onchange:async(e)=>{
+        const file=e.target.files[0];e.target.value='';if(!file)return;
+        if(file.size>200000){toast('Use uma imagem de até 200 KB.');return;}
+        q.image=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=reject;reader.readAsDataURL(file);});touch();render();
+      }})),
+      q.image&&h('img',{src:q.image,alt:q.imageAlt||'Imagem da questão',style:'max-width:100%;max-height:280px;object-fit:contain;border-radius:12px'}),
+      q.image&&h('div',{class:'row'},h('label',{class:'field grow'},h('span',{},'Descrição acessível da imagem'),h('input',{value:q.imageAlt||'',disabled:lock,oninput:(e)=>{q.imageAlt=e.target.value;touch();}})),!lock&&h('button',{class:'btn quiet',onclick:()=>{q.image='';q.imageAlt='';touch();render();}},'Remover imagem'))),
     h('div', { class: 'row' },
       h('label', { class: 'field grow' }, h('span', {}, 'Habilidade SAEB de Matemática'), h('select', { value: q.skill || '', disabled: lock, onchange: (e) => { q.skill = e.target.value; touch(); } },
         h('option', { value: '' }, 'Sem habilidade vinculada'),
         q.skill && /^D\d{1,2}$/.test(q.skill) && h('option', { value: q.skill }, skillLabel(q.skill)),
         ...SAEB_LEVELS.map((level) => h('optgroup', { label: level.label }, SAEB_SKILLS.filter((item) => item.id.startsWith(`${level.id}-`)).map((item) => h('option', { value: item.id }, item.label)))))),
       h('label', { class: 'field' }, h('span', {}, 'Peso'), h('input', { type: 'number', min: '0.25', max: '100', step: '0.25', value: q.weight, disabled: lock, style: 'width:90px', oninput: (e) => { q.weight = e.target.value; touch(); } }))),
+    h('div',{class:'row'},
+      h('label',{class:'field grow'},h('span',{},'Conteúdo'),h('input',{value:q.topic||'',maxLength:80,disabled:lock,placeholder:'Ex.: frações, geometria',oninput:(e)=>{q.topic=e.target.value;touch();}})),
+      h('label',{class:'field'},h('span',{},'Dificuldade'),h('select',{value:q.difficulty||'',disabled:lock,onchange:(e)=>{q.difficulty=e.target.value;touch();}},h('option',{value:''},'Não definida'),h('option',{value:'easy'},'Fácil'),h('option',{value:'medium'},'Média'),h('option',{value:'hard'},'Difícil')))),
     h('label', { class: 'field' }, h('span', {}, 'Explicação da resposta correta'), h('textarea', { value: q.explanation || '', disabled: lock, placeholder: 'Opcional: será exibida ao estudante se o feedback estiver ativado.', oninput: (e) => { q.explanation = e.target.value; touch(); } })),
     !lock && h('button', { class: 'btn quiet', type: 'button', onclick: guard(async () => {
       const raw = payload().questions[index];

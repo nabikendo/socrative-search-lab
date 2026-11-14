@@ -56,6 +56,7 @@ function render() {
     h('div', { class: 'card stack-s' },
       h('h2', { class: 'headline' }, 'Dúvidas frequentes'),
       faq('Os alunos não conseguem abrir a página', 'Use “Testar a conexão” acima. Confira se o computador e os aparelhos estão no mesmo Wi‑Fi e se os alunos usam o endereço com números (192.168…), nunca “localhost”. No Windows, permita o Atlas no Firewall para Redes privadas.'),
+      faq('Dois professores podem aplicar provas ao mesmo tempo?', 'Sim. Cada computador do professor tem seu próprio endereço e código de prova; os alunos usam o QR Code daquele professor. Um único endereço geral para toda a escola exige um servidor e um nome de rede configurados pela escola.'),
       faq('Esqueci o PIN', 'Abra o arquivo data/pin.txt dentro da pasta do Atlas. O PIN também aparece na janela preta ao iniciar.'),
       faq('Um aluno enviou sem querer', 'Em Resultados, abra o aluno e clique em “Reabrir para o aluno”.'),
       faq('Quero mudar uma prova que já tem respostas', 'As questões ficam travadas. Use “Duplicar” na aba Prova e altere a cópia.'),
@@ -92,13 +93,15 @@ const row = (state, title, text) => h('div', { class: `check ${state}` }, h('spa
 function checks(d) {
   const out = [row('ok', 'O Atlas está funcionando', 'Este computador está respondendo.')];
   const reachable = d.urls.filter((u) => u.reachable);
+  const shortAddress=d.aliases?.find((u)=>u.reachable);
   if (!d.urls.length) {
     out.push(row('bad', 'Este computador não está conectado a uma rede', 'Conecte-o ao Wi‑Fi da sala (ou ligue o roteador) e teste de novo.'));
   } else if (!reachable.length) {
     out.push(row('warn', 'O endereço da rede não respondeu', `${d.urls.map((u) => `${u.url}/prova`).join(' · ')}. Pode ser um bloqueio do Firewall ou do antivírus deste computador.`));
   } else {
-    out.push(row('ok', 'Endereço para os alunos', reachable.map((u) => `${u.url}/prova`).join(' · ') + (reachable.length > 1 ? '. Se um não funcionar, tente o outro.' : '')));
+    out.push(row('ok', 'Endereço para os alunos', `${shortAddress ? `${shortAddress.url}/prova (nome curto)` : ''}${shortAddress ? ' · ' : ''}${reachable.map((u) => `${u.url}/prova`).join(' · ')}${reachable.length > 1 ? '. Se um não funcionar, tente o outro.' : ''}`));
   }
+  if (!shortAddress && d.aliases?.length) out.push(row('warn','Nome curto não confirmado neste computador',`Se ${d.aliases[0].url}/prova não abrir no aparelho do aluno, use o endereço numérico mostrado acima.`));
   const bad = d.interfaces.filter((i) => i.virtual || i.linkLocal);
   if (bad.length && d.interfaces.length > bad.length) out.push(row('warn', 'Há redes virtuais neste computador', `Ignore endereços de ${bad.map((i) => i.name).join(', ')}. Use o que começa com 192.168 ou 10.`));
   out.push(d.examOpen ? row('ok', 'Há uma prova aberta') : row('warn', 'Nenhuma prova está aberta', 'Os alunos verão “Aguarde”. Abra a prova na aba Prova.'));

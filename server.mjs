@@ -74,9 +74,11 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     document: exam.document ? { id: exam.document.id, name: exam.document.name, kind: exam.document.kind, html: exam.document.kind === 'docx' ? store.getDocument(exam.document.id)?.html : undefined } : null,
   });
   function openExamWithCode(code) {
+    store.activateSchedules();
     const exam = store.getOpenExam();
     if (!exam) throw new HttpError(409, 'exam_closed', 'A prova ainda não está aberta.');
     if (!same(String(code ?? ''), exam.accessCode)) throw new HttpError(403, 'invalid_code', 'Código incorreto.');
+    if (exam.status === 'paused') throw new HttpError(423, 'exam_paused', 'A prova está pausada. Aguarde o professor.');
     return exam;
   }
   function studentSession(input) {
@@ -92,12 +94,15 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const answers = store.answersForExam(exam.id);
     const grades = store.gradesForExam(exam.id);
     return store.listSessions(exam.id).map((s) => {
-      const given = answers[s.id] || {};
+      const given = { ...(answers[s.id] || {}) };
+      for (const question of exam.questions) if (question.type === 'multi' && typeof given[question.id] === 'string') {
+        try { given[question.id] = JSON.parse(given[question.id]); } catch { given[question.id] = []; }
+      }
       const result = scoreSession(exam, given, grades[s.id]);
       return {
         sessionId: s.id, number: s.number, name: s.name || roster.get(s.number)?.name || 'Aluno fora da lista', className: s.className || roster.get(s.number)?.className || '',
         status: s.status, online: isOnline(s), startedAt: s.startedAt, submittedAt: s.submittedAt,
-        answered: Object.values(given).filter(Boolean).length, total: exam.questions.length,
+        answered: Object.values(given).filter((value)=>Array.isArray(value)?value.length>0:String(value??'').trim().length>0).length, total: exam.questions.length,
         score: result.score, max: result.max, pending: result.pending, detail: result.detail, answers: given, grades: grades[s.id] || {},
       };
     });
@@ -163,6 +168,12 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal)
       .map((i) => i.address).sort((a, b) => rank(a) - rank(b)).map((ip) => `http://${ip}:${port}`);
   }
+  function lanAliases(port) {
+    const hostname = os.hostname().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+    if (!hostname) return [];
+    const suffix = Number(port) === 80 ? '' : `:${Number(port)}`;
+    return [`http://${hostname}.local${suffix}`];
+  }
 
   // ---------- rotas
   const routes = [];
@@ -181,8 +192,22 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   };
   route('GET', '/api/open-exam', ({ req }) => {
     seenDevice(req);
+    store.activateSchedules();
     const exam = store.getOpenExam();
-    return { exam: exam ? { title: exam.title } : null };
+    return { exam: exam ? { title: exam.title, paused:exam.status==='paused' } : null };
+  });
+  route('POST', '/api/join-requests', async ({ req }) => {
+    limit(req, 'join-request', 10);
+    const input = await readJson(req);
+    const exam = openExamWithCode(input.code);
+    const number = String(input.number || '').trim();
+    const name = String(input.name || '').trim().slice(0,180);
+    if (!/^\d{1,4}$/.test(number) || name.length < 2) throw new HttpError(400, 'invalid_student_request', 'Informe seu número e nome completo.');
+    const students = exam.classId ? store.classRoster(exam.classId) : store.getRoster();
+    if (students.some((s) => s.number === number)) throw new HttpError(409, 'student_already_listed', 'Você já está na lista. Tente entrar novamente.');
+    try { store.createJoinRequest(exam.id, exam.classId, number, name); }
+    catch { throw new HttpError(409, 'request_already_exists', 'Já existe uma solicitação para esse número. Aguarde o professor.'); }
+    return { ok:true, message:'Pedido enviado ao professor. Aguarde a autorização e tente entrar novamente.' };
   });
   route('POST', '/api/identify', async ({ req }) => {
     limit(req, 'identify', 30);
@@ -213,20 +238,30 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   route('POST', '/api/session/heartbeat', async ({ req }) => {
     const session = studentSession(await readJson(req));
     seenDevice(req);
+    store.activateSchedules();
     lastSeen.set(session.id, Date.now());
     const exam = store.getExam(session.examId);
-    return { ok: true, examOpen: exam?.status === 'open', submitted: session.status === 'submitted' };
+    return { ok: true, examOpen: exam?.status === 'open', examPaused:exam?.status==='paused', studentPaused:session.status==='paused', submitted: session.status === 'submitted' };
   });
   route('POST', '/api/answer', async ({ req }) => {
     const input = await readJson(req);
     const session = studentSession(input);
     if (session.status === 'submitted') throw new HttpError(409, 'session_closed', 'Prova já enviada.');
+    if (session.status === 'paused') throw new HttpError(423, 'session_paused', 'Sua prova foi pausada pelo professor.');
     const exam = store.getExam(session.examId);
+    if (exam.status === 'paused') throw new HttpError(423, 'exam_paused', 'A prova está pausada pelo professor.');
     if (exam.status !== 'open') throw new HttpError(409, 'exam_closed', 'O professor encerrou a prova.');
     const question = exam.questions.find((x) => x.id === String(input.questionId));
     if (!question) throw new HttpError(400, 'unknown_question');
-    const answer = String(input.answer ?? '').slice(0, 5000);
-    if (question.type === 'choice' && answer && !question.options.includes(answer)) throw new HttpError(400, 'invalid_answer');
+    let answer;
+    if (question.type === 'multi') {
+      if (!Array.isArray(input.answer) || input.answer.length > question.options.length || input.answer.some((value)=>!question.options.includes(value))) throw new HttpError(400,'invalid_answer');
+      answer=JSON.stringify([...new Set(input.answer)]);
+    } else {
+      answer = String(input.answer ?? '').slice(0, 5000);
+      if (question.type === 'choice' && answer && !question.options.includes(answer)) throw new HttpError(400, 'invalid_answer');
+      if (question.type === 'numeric' && answer && !Number.isFinite(Number(answer.replace(',','.')))) throw new HttpError(400,'invalid_answer');
+    }
     store.saveAnswer(session.id, question.id, answer);
     lastSeen.set(session.id, Date.now());
     return { ok: true };
@@ -236,13 +271,16 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const session = studentSession(input);
     const exam = needExam(session.examId);
     if (!exam.feedback) throw new HttpError(403, 'feedback_disabled');
-    if (!store.getAnswers(session.id)[String(input.questionId || '')]) throw new HttpError(404, 'answer_required');
     const question = exam.questions.find((x) => x.id === String(input.questionId));
-    if (!question || (question.type === 'choice' && !question.correct) || (question.type === 'text' && !question.explanation)) throw new HttpError(404, 'feedback_unavailable');
+    if (!question) throw new HttpError(404,'feedback_unavailable');
+    const rawAnswer=store.getAnswers(session.id)[question.id];
+    if (!rawAnswer || (question.type==='multi' && JSON.parse(rawAnswer).length===0)) throw new HttpError(404,'answer_required');
+    if ((question.type === 'choice' && !question.correct) || (question.type === 'multi' && !question.correct?.length) || (question.type==='numeric'&&question.correct===undefined) || (question.type === 'text' && !question.explanation)) throw new HttpError(404, 'feedback_unavailable');
     return { correct: question.correct || null, explanation: question.explanation || '' };
   });
   route('POST', '/api/session/submit', async ({ req }) => {
     const session = studentSession(await readJson(req));
+    if (session.status === 'paused' || store.getExam(session.examId)?.status === 'paused') throw new HttpError(423, 'exam_paused', 'A prova está pausada pelo professor.');
     store.submit(session.id);
     return { ok: true };
   });
@@ -275,9 +313,23 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   route('GET', '/api/auth/status', ({ req }) => ({ authenticated: isAdmin(req) }));
 
   // professor
-  route('GET', '/api/network', { admin: true }, ({ req }) => ({ urls: lanUrls(req.socket.localPort) }));
+  route('GET', '/api/network', { admin: true }, ({ req }) => ({ aliases:lanAliases(req.socket.localPort), urls: lanUrls(req.socket.localPort) }));
   route('GET', '/api/roster', { admin: true }, () => ({ roster: store.getRoster() }));
-  route('GET', '/api/classes', { admin: true }, () => ({ classes: store.listClasses() }));
+  route('GET', '/api/classes', { admin: true }, ({ url }) => ({ classes: store.listClasses({ includeArchived:url.searchParams.get('all') === '1' }) }));
+  route('GET', '/api/join-requests', { admin:true }, () => ({ requests:store.pendingJoinRequests() }));
+  route('POST', '/api/join-requests/:id/approve', { admin:true }, ({ params }) => {
+    const request = store.getJoinRequest(params.id);
+    if (!request) throw new HttpError(404, 'request_not_found');
+    try { store.approveJoinRequest(params.id); }
+    catch (error) { throw new HttpError(409, 'request_approval_failed', error.message); }
+    store.addAudit('student_admitted', request.exam_id, `Nº ${request.number}: ${request.name} autorizado pelo professor.`);
+    return { ok:true };
+  });
+  route('POST', '/api/join-requests/:id/reject', { admin:true }, ({ params }) => {
+    if (!store.getJoinRequest(params.id)) throw new HttpError(404, 'request_not_found');
+    store.rejectJoinRequest(params.id);
+    return { ok:true };
+  });
   route('POST', '/api/classes', { admin: true }, async ({ req }) => {
     const input = await readJson(req);
     const rows = parseRosterRows((input.roster || []).map((r) => [r.number, r.name]));
@@ -288,6 +340,40 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   route('GET', '/api/classes/:id/roster', { admin: true }, ({ params }) => {
     if (!store.getClass(params.id)) throw new HttpError(404, 'class_not_found');
     return { roster: store.classRoster(params.id) };
+  });
+  route('POST', '/api/classes/:id/archive', { admin: true }, async ({ req, params }) => {
+    if (!store.getClass(params.id)) throw new HttpError(404, 'class_not_found');
+    const archived = !!(await readJson(req)).archived;
+    store.archiveClass(params.id, archived);
+    store.addAudit(archived ? 'class_archived' : 'class_restored', params.id, archived ? 'Turma arquivada.' : 'Turma restaurada.');
+    return { ok:true };
+  });
+  route('POST', '/api/classes/:id/students/:number/update', { admin:true }, async ({ req, params }) => {
+    const input=await readJson(req);
+    const name = String(input.name || '').trim().slice(0, 180);
+    const nextNumber=String(input.number || params.number).trim();
+    if (name.length < 2) throw new HttpError(400, 'invalid_student_name', 'Informe o nome completo do aluno.');
+    if (!/^\d{1,4}$/.test(nextNumber)) throw new HttpError(400,'invalid_student_number','O número de chamada deve ter de 1 a 4 algarismos.');
+    let student;
+    try { student=store.updateStudent(params.id, params.number, name, nextNumber); }
+    catch { throw new HttpError(409,'student_number_conflict','Já existe esse número na turma.'); }
+    if (!student) throw new HttpError(404, 'student_not_found');
+    store.addAudit('student_record_changed', params.id, `Nº ${params.number} → ${nextNumber}; nome: ${name}.`);
+    return { ok:true, student };
+  });
+  route('POST', '/api/classes/:id/students/:number/move', { admin:true }, async ({ req, params }) => {
+    const targetId = String((await readJson(req)).targetClassId || '');
+    try {
+      const student = store.moveStudent(params.id, targetId, params.number);
+      store.addAudit('student_moved', params.id, `Nº ${params.number} movido para ${targetId}; histórico preservado.`);
+      return { ok:true, student };
+    } catch (error) { throw new HttpError(409, 'student_move_failed', error.message); }
+  });
+  route('GET', '/api/students/search', { admin:true }, ({ url }) => ({ students: store.searchStudents(url.searchParams.get('q') || '') }));
+  route('GET', '/api/students/:id/history', { admin:true }, ({ params }) => {
+    const history = store.studentHistory(params.id);
+    if (!history.length) throw new HttpError(404, 'student_history_not_found');
+    return { history };
   });
   route('POST', '/api/roster', { admin: true }, async ({ req }) => {
     const input = await readJson(req);
@@ -345,6 +431,18 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   });
   route('POST', '/api/exams/:id/open', { admin: true }, ({ params }) => { needExam(params.id); return { ok: true, code: store.openExam(params.id) }; });
   route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { needExam(params.id); store.closeExam(params.id); return { ok: true }; });
+  route('POST', '/api/exams/:id/pause', { admin:true }, ({ params }) => {
+    const exam=needExam(params.id);
+    if (exam.status!=='open') throw new HttpError(409,'exam_not_open');
+    store.pauseExam(exam.id); store.addAudit('exam_paused',exam.id,'Prova pausada pelo professor.');
+    return {ok:true};
+  });
+  route('POST', '/api/exams/:id/resume', { admin:true }, ({ params }) => {
+    const exam=needExam(params.id);
+    if (exam.status!=='paused') throw new HttpError(409,'exam_not_paused');
+    store.resumeExam(exam.id); store.addAudit('exam_resumed',exam.id,'Prova retomada pelo professor.');
+    return {ok:true};
+  });
   route('POST', '/api/exams/:id/document', { admin: true }, async ({ req, url, params }) => {
     needExam(params.id);
     const buffer = await readBody(req, MAX_DOCUMENT_BYTES);
@@ -362,7 +460,24 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   route('DELETE', '/api/exams/:id/document', { admin: true }, ({ params }) => { needExam(params.id); store.removeDocument(params.id); return { ok: true }; });
   route('GET', '/api/exams/:id/results', { admin: true }, ({ params }) => {
     const exam = needExam(params.id);
-    return { exam: { id: exam.id, title: exam.title, status: exam.status, questions: exam.questions }, results: resultsFor(exam) };
+    const participants = exam.classId ? store.classRoster(exam.classId) : store.getRoster();
+    return { exam: { id: exam.id, title: exam.title, status: exam.status, questions: exam.questions }, results: resultsFor(exam), participants };
+  });
+  route('GET', '/api/exams/:id/projector', { admin: true }, ({ params }) => {
+    const exam = needExam(params.id);
+    const results = resultsFor(exam);
+    const total = exam.classId ? store.classRoster(exam.classId).length : store.getRoster().length;
+    const questions = exam.questions.map((q, index) => ({
+      index: index + 1,
+      answered: results.reduce((n, result) => n + (result.answers[q.id] ? 1 : 0), 0),
+      total: results.length,
+    }));
+    return {
+      title: exam.title, status: exam.status, code: exam.status === 'open' ? exam.accessCode : null,
+      total, started: results.length, online: results.filter((r) => r.online).length,
+      submitted: results.filter((r) => r.status === 'submitted').length,
+      questions, scheduledStart: exam.scheduledStart, scheduledEnd: exam.scheduledEnd,
+    };
   });
   route('GET', '/api/exams/:id/export.csv', { admin: true }, ({ res, params }) => {
     const exam = needExam(params.id);
@@ -396,7 +511,54 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     store.setGrade(session.id, question.id, score);
     return { ok: true };
   });
-  route('POST', '/api/sessions/:id/reopen', { admin: true }, ({ params }) => { needSession(params.id); store.reopen(params.id); return { ok: true }; });
+  route('POST', '/api/sessions/:id/reopen', { admin: true }, async ({ req, params }) => {
+    const session = needSession(params.id);
+    const input = await readJson(req);
+    const reason = String(input.reason || '').trim().slice(0, 500);
+    if (reason.length < 5) throw new HttpError(400, 'reopen_reason_required', 'Informe o motivo (mínimo 5 caracteres).');
+    store.reopen(params.id);
+    store.addAudit('session_reopened', session.examId, `Aluno ${session.number}: ${reason}`);
+    return { ok: true };
+  });
+  route('POST', '/api/sessions/:id/pause', {admin:true}, ({params}) => {
+    const session=needSession(params.id);
+    if (session.status!=='active') throw new HttpError(409,'session_not_active');
+    store.pauseSession(session.id); store.addAudit('student_paused',session.examId,`Aluno nº ${session.number} pausado pelo professor.`);
+    return {ok:true};
+  });
+  route('POST', '/api/sessions/:id/resume', {admin:true}, ({params}) => {
+    const session=needSession(params.id);
+    if (session.status!=='paused') throw new HttpError(409,'session_not_paused');
+    store.resumeSession(session.id); store.addAudit('student_resumed',session.examId,`Aluno nº ${session.number} retomado pelo professor.`);
+    return {ok:true};
+  });
+
+  route('GET', '/api/exams/:id/audit', { admin: true }, ({ params }) => {
+    needExam(params.id);
+    return { events: store.listAudit(params.id) };
+  });
+  route('POST', '/api/exams/:id/schedule', { admin: true }, async ({ req, params }) => {
+    const exam = needExam(params.id);
+    const input = await readJson(req);
+    const start = Date.parse(input.startAt);
+    const end = input.endAt ? Date.parse(input.endAt) : null;
+    if (!Number.isFinite(start) || start <= Date.now() + 5000 || (input.endAt && (!Number.isFinite(end) || end <= start))) {
+      throw new HttpError(400, 'invalid_schedule', 'Escolha um início futuro e um encerramento posterior ao início.');
+    }
+    if (exam.status === 'open' || store.listExams().some((e) => e.id !== exam.id && ['open', 'paused', 'scheduled'].includes(e.status))) {
+      throw new HttpError(409, 'schedule_conflict', 'Encerre ou cancele a outra prova antes de agendar esta.');
+    }
+    store.scheduleExam(exam.id, new Date(start).toISOString(), end ? new Date(end).toISOString() : null);
+    store.addAudit('exam_scheduled', exam.id, `Início: ${new Date(start).toISOString()}${end ? `; encerramento: ${new Date(end).toISOString()}` : ''}`);
+    return { ok: true, exam: needExam(exam.id) };
+  });
+  route('POST', '/api/exams/:id/schedule/cancel', { admin: true }, ({ params }) => {
+    const exam = needExam(params.id);
+    if (exam.status !== 'scheduled') throw new HttpError(409, 'not_scheduled');
+    store.cancelSchedule(exam.id);
+    store.addAudit('schedule_cancelled', exam.id, 'Agendamento cancelado pelo professor.');
+    return { ok: true };
+  });
 
   // diagnóstico de rede: ajuda o professor a descobrir por que os alunos não entram
   route('GET', '/api/diagnostics', { admin: true }, async ({ req }) => {
@@ -408,11 +570,15 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       try { const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1500) }); return { url, reachable: r.ok }; }
       catch { return { url, reachable: false }; }
     }));
+    const aliases = await Promise.all(lanAliases(port).map(async (url) => {
+      try { const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1500) }); return { url, reachable:r.ok }; }
+      catch { return { url, reachable:false }; }
+    }));
     const t = Date.now();
     const seen = [...devices].filter(([, at]) => t - at < 60_000).map(([ip, at]) => ({ ip, secondsAgo: Math.round((t - at) / 1000) })).sort((a, b) => a.secondsAgo - b.secondsAgo);
     for (const [ip, at] of devices) if (t - at > 3600_000) devices.delete(ip);
     const classStudents = store.listClasses().reduce((sum, c) => sum + c.students, 0);
-    return { port, interfaces, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length + classStudents };
+    return { port, interfaces, aliases, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length + classStudents };
   });
 
   // backup manual: um único arquivo .atlas com banco e anexos
@@ -438,6 +604,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     if (rel === '/') rel = '/index.html';
     else if (rel === '/professor') rel = '/professor.html';
     else if (rel === '/prova') rel = '/prova.html';
+    else if (rel === '/projetor') rel = '/projetor.html';
     const file = path.normalize(path.join(dist, rel));
     if (!file.startsWith(dist + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) throw new HttpError(404, 'not_found');
     const ext = path.extname(file);
@@ -484,7 +651,9 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
 
   const backupTimer = setInterval(() => store.snapshot(), 5 * 60_000);
   backupTimer.unref();
-  const close = () => new Promise((resolve) => { clearInterval(backupTimer); server.close(() => { store.close(); resolve(); }); server.closeAllConnections?.(); });
+  const scheduleTimer = setInterval(() => store.activateSchedules(), 1000);
+  scheduleTimer.unref();
+  const close = () => new Promise((resolve) => { clearInterval(backupTimer); clearInterval(scheduleTimer); server.close(() => { store.close(); resolve(); }); server.closeAllConnections?.(); });
   return { server, store, pin, close };
 }
 

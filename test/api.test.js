@@ -95,6 +95,12 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   ({ code } = (await call(`/api/exams/${examId}/open`, { method: 'POST', cookie: admin })).data);
   assert.equal((await call('/api/identify', { method: 'POST', body: { code: '0000', number: '3' } })).status, 403);
   assert.equal((await call('/api/identify', { method: 'POST', body: { code, number: '99' } })).status, 404);
+  const joinRequest=await call('/api/join-requests',{method:'POST',body:{code,number:'99',name:'Estudante autorizado'}});
+  assert.equal(joinRequest.status,200);
+  const pending=(await call('/api/join-requests',{cookie:admin})).data.requests[0];
+  assert.equal(pending.number,'99');
+  assert.equal((await call(`/api/join-requests/${pending.id}/approve`,{method:'POST',cookie:admin})).status,200);
+  assert.equal((await call('/api/identify',{method:'POST',body:{code,number:'99'}})).status,200);
 
   const start = await call('/api/session/start', { method: 'POST', body: { code, number: '3' } });
   assert.equal(start.status, 200);
@@ -104,6 +110,13 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   student = start.data.session;
   assert.equal((await call('/api/session/start', { method: 'POST', body: { code, number: '3' } })).data.error, 'session_in_use');
   assert.equal((await call('/api/session/start', { method: 'POST', body: { code, number: '3', token: student.token } })).status, 200);
+  assert.equal((await call(`/api/exams/${examId}/pause`,{method:'POST',cookie:admin})).status,200);
+  assert.equal((await call('/api/session/heartbeat',{method:'POST',body:{sessionId:student.id,token:student.token}})).data.examPaused,true);
+  assert.equal((await call('/api/answer',{method:'POST',body:{sessionId:student.id,token:student.token,questionId:'q',answer:'A'}})).data.error,'exam_paused');
+  assert.equal((await call(`/api/exams/${examId}/resume`,{method:'POST',cookie:admin})).status,200);
+  assert.equal((await call(`/api/sessions/${student.id}/pause`,{method:'POST',cookie:admin})).status,200);
+  assert.equal((await call('/api/session/heartbeat',{method:'POST',body:{sessionId:student.id,token:student.token}})).data.studentPaused,true);
+  assert.equal((await call(`/api/sessions/${student.id}/resume`,{method:'POST',cookie:admin})).status,200);
 
   const [q1, q2] = start.data.exam.questions;
   const send = (questionId, answer) => call('/api/answer', { method: 'POST', body: { sessionId: student.id, token: student.token, questionId, answer } });
@@ -119,6 +132,10 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   const results = (await call(`/api/exams/${examId}/results`, { cookie: admin })).data;
   assert.equal(results.results[0].score, 2);
   assert.equal(results.results[0].pending, 1);
+  const projector = await call(`/api/exams/${examId}/projector`, { cookie: admin });
+  assert.equal(projector.status, 200);
+  assert.equal(projector.data.started, 1);
+  assert.ok(!JSON.stringify(projector.data).includes('Aluno <img'), 'modo projetor não expõe nomes de estudantes');
   const q2id = q2.id;
   assert.equal((await call('/api/grade', { method: 'POST', cookie: admin, body: { sessionId: student.id, questionId: q2id, score: 5 } })).status, 400);
   assert.equal((await call('/api/grade', { method: 'POST', cookie: admin, body: { sessionId: student.id, questionId: q2id, score: 0.5 } })).status, 200);
@@ -130,6 +147,34 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   assert.equal(reportBytes.toString('latin1', 0, 5), '%PDF-');
   assert.ok(reportBytes.toString('latin1').endsWith('%%EOF'));
   assert.equal((await call('/api/session/start', { method: 'POST', body: { code, number: '3', token: student.token } })).data.error, 'already_submitted');
+  assert.equal((await call(`/api/sessions/${student.id}/reopen`, { method:'POST', cookie:admin, body:{ reason:'Envio acidental confirmado.' } })).status, 200);
+  const audit = await call(`/api/exams/${examId}/audit`, { cookie:admin });
+  assert.equal(audit.data.events[0].event, 'session_reopened');
+  assert.match(audit.data.events[0].detail, /Envio acidental/);
+});
+
+test('questões de múltiplas respostas e numéricas corrigem, dão feedback e aceitam imagem segura', async()=>{
+  const image='data:image/png;base64,aGVsbG8=';
+  const created=await call('/api/exams',{method:'POST',cookie:admin,body:{title:'Tipos adicionais',feedback:true,questions:[
+    {type:'multi',text:'Marque A e C',options:['A','B','C'],correct:['A','C'],explanation:'Duas alternativas corretas.'},
+    {type:'numeric',text:'Quanto é 2 + 2?',correct:4,tolerance:0.1,explanation:'Some os dois pares.',image,imageAlt:'Dois pares de pontos.'},
+  ]}});
+  assert.equal(created.status,200);
+  const id=created.data.exam.id;
+  const {code}= (await call(`/api/exams/${id}/open`,{method:'POST',cookie:admin})).data;
+  const start=await call('/api/session/start',{method:'POST',body:{code,number:'5'}});
+  assert.ok(!JSON.stringify(start.data.exam).includes('correct'));
+  assert.equal(start.data.exam.questions[1].image,image);
+  const [multi,numeric]=start.data.exam.questions;
+  assert.equal((await call('/api/answer',{method:'POST',body:{sessionId:start.data.session.id,token:start.data.session.token,questionId:multi.id,answer:['A','C']}})).status,200);
+  assert.deepEqual((await call('/api/session/feedback',{method:'POST',body:{sessionId:start.data.session.id,token:start.data.session.token,questionId:multi.id}})).data.correct,['A','C']);
+  assert.equal((await call('/api/answer',{method:'POST',body:{sessionId:start.data.session.id,token:start.data.session.token,questionId:numeric.id,answer:'4.05'}})).status,200);
+  assert.equal((await call('/api/session/feedback',{method:'POST',body:{sessionId:start.data.session.id,token:start.data.session.token,questionId:numeric.id}})).data.correct,'4');
+  const results=(await call(`/api/exams/${id}/results`,{cookie:admin})).data.results;
+  assert.equal(results[0].score,2);
+  assert.deepEqual(results[0].answers[multi.id],['A','C']);
+  await call(`/api/exams/${id}/close`,{method:'POST',cookie:admin});
+  await call(`/api/exams/${examId}/open`,{method:'POST',cookie:admin});
 });
 
 test('CSV: BOM, ponto e vírgula, decimal com vírgula e sem injeção de fórmula', async () => {
@@ -158,6 +203,39 @@ test('abrir outra prova fecha a anterior e respostas são recusadas após encerr
   assert.equal((await call('/api/open-exam')).data.exam.title, 'Outra');
   await call(`/api/exams/${other.id}/close`, { method: 'POST', cookie: admin });
   assert.equal((await call('/api/open-exam')).data.exam, null);
+});
+
+test('agendamento abre e encerra a prova pelo relógio do servidor', async () => {
+  const created = await call('/api/exams', { method:'POST', cookie:admin, body:{ title:'Prova agendada', questions:[{type:'text',text:'Questão'}] } });
+  const id = created.data.exam.id;
+  const start = Date.now() + 60_000;
+  const end = start + 60_000;
+  const scheduled = await call(`/api/exams/${id}/schedule`, { method:'POST', cookie:admin, body:{ startAt:new Date(start).toISOString(), endAt:new Date(end).toISOString() } });
+  assert.equal(scheduled.status, 200);
+  assert.equal(scheduled.data.exam.status, 'scheduled');
+  app.store.activateSchedules(new Date(start + 1).toISOString());
+  assert.equal((await call('/api/open-exam')).data.exam.title, 'Prova agendada');
+  app.store.activateSchedules(new Date(end + 1).toISOString());
+  assert.equal((await call('/api/open-exam')).data.exam, null);
+});
+
+test('busca, edição, transferência, arquivo de turma e histórico acompanham o mesmo estudante', async () => {
+  const a=(await call('/api/classes',{method:'POST',cookie:admin,body:{name:'Histórico A',roster:[{number:'1',name:'Nome Original'}]}})).data.class;
+  const b=(await call('/api/classes',{method:'POST',cookie:admin,body:{name:'Histórico B',roster:[{number:'2',name:'Outra Pessoa'}]}})).data.class;
+  const row=(await call(`/api/classes/${a.id}/roster`,{cookie:admin})).data.roster[0];
+  const exam=(await call('/api/exams',{method:'POST',cookie:admin,body:{title:'Prova com histórico',classId:a.id,questions:[{type:'text',text:'Questão'}]}})).data.exam;
+  const {code}= (await call(`/api/exams/${exam.id}/open`,{method:'POST',cookie:admin})).data;
+  const session=(await call('/api/session/start',{method:'POST',body:{code,number:'1'}})).data.session;
+  await call('/api/session/submit',{method:'POST',body:{sessionId:session.id,token:session.token}});
+  assert.equal((await call(`/api/students/${row.id}/history`,{cookie:admin})).data.history[0].title,'Prova com histórico');
+  assert.equal((await call(`/api/classes/${a.id}/students/1/update`,{method:'POST',cookie:admin,body:{name:'Nome Corrigido',number:'3'}})).status,200);
+  assert.equal((await call('/api/students/search?q=Corrigido',{cookie:admin})).data.students[0].id,row.id);
+  assert.equal((await call(`/api/classes/${a.id}/students/3/move`,{method:'POST',cookie:admin,body:{targetClassId:b.id}})).status,200);
+  assert.equal((await call(`/api/classes/${b.id}/roster`,{cookie:admin})).data.roster.find((s)=>s.id===row.id).name,'Nome Corrigido');
+  assert.equal((await call(`/api/students/${row.id}/history`,{cookie:admin})).data.history.length,1);
+  await call(`/api/classes/${a.id}/archive`,{method:'POST',cookie:admin,body:{archived:true}});
+  assert.ok(!(await call('/api/classes',{cookie:admin})).data.classes.some((c)=>c.id===a.id));
+  assert.ok((await call('/api/classes?all=1',{cookie:admin})).data.classes.some((c)=>c.id===a.id&&c.archived===1));
 });
 
 test('upload valida o conteúdo real do arquivo', async () => {

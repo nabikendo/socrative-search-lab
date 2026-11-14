@@ -14,6 +14,7 @@ export function questionId() {
 }
 
 const text = (value, max) => String(value ?? '').trim().slice(0, max);
+const answered = (value) => Array.isArray(value) ? value.length > 0 : String(value ?? '').trim().length > 0;
 
 export function normalizeQuestions(input) {
   if (!Array.isArray(input)) throw new ExamError('questions_required', 'Adicione questões ou anexe um PDF da prova.');
@@ -31,15 +32,31 @@ export function normalizeQuestions(input) {
     const weight = Number(raw?.weight ?? 1);
     if (!Number.isFinite(weight) || weight <= 0 || weight > 100) throw new ExamError('invalid_weight', `${label}: o peso deve estar entre 0 e 100.`);
 
-    const type = raw?.type === 'choice' ? 'choice' : 'text';
+    let type = ['choice','multi','numeric','text'].includes(raw?.type) ? raw.type : 'text';
+    if (raw?.type === 'truefalse') type = 'choice';
     const skill = text(raw?.skill, 12).toUpperCase();
     const explanation = text(raw?.explanation, 1200);
-    const metadata = { ...(SAEB_SKILL_IDS.has(skill) || LEGACY_SKILL_IDS.has(skill) ? { skill } : {}), ...(explanation ? { explanation } : {}) };
+    const topic = text(raw?.topic, 80);
+    const difficulty = ['easy','medium','hard'].includes(raw?.difficulty) ? raw.difficulty : undefined;
+    const image = typeof raw?.image === 'string' && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(raw.image) && raw.image.length <= 300_000 ? raw.image : undefined;
+    const imageAlt = text(raw?.imageAlt, 200);
+    const metadata = { ...(SAEB_SKILL_IDS.has(skill) || LEGACY_SKILL_IDS.has(skill) ? { skill } : {}), ...(explanation ? { explanation } : {}), ...(topic ? { topic } : {}), ...(difficulty ? { difficulty } : {}), ...(image ? { image, imageAlt } : {}) };
     if (type === 'text') return { id, type, text: body, options: [], weight: Math.round(weight * 100) / 100, ...metadata };
 
-    const options = (Array.isArray(raw.options) ? raw.options : []).map((o) => text(o, 500)).filter(Boolean);
+    if (type === 'numeric') {
+      const correct = Number(raw?.correct);
+      const tolerance = Number(raw?.tolerance ?? 0);
+      if (!Number.isFinite(correct) || !Number.isFinite(tolerance) || tolerance < 0 || tolerance > 1_000_000) throw new ExamError('invalid_numeric_answer', `${label}: informe uma resposta numérica correta e uma tolerância válida.`);
+      return { id, type, text: body, options: [], correct: String(correct), tolerance, weight: Math.round(weight * 100) / 100, ...metadata };
+    }
+
+    const options = raw?.type === 'truefalse' && !Array.isArray(raw.options) ? ['Verdadeiro','Falso'] : (Array.isArray(raw.options) ? raw.options : []).map((o) => text(o, 500)).filter(Boolean);
     if (options.length < 2 || options.length > 10) throw new ExamError('invalid_options', `${label}: use de 2 a 10 alternativas.`);
     if (new Set(options).size !== options.length) throw new ExamError('duplicate_options', `${label}: há alternativas repetidas.`);
+    if (type === 'multi') {
+      const correct = Array.isArray(raw.correct) ? [...new Set(raw.correct.filter((answer) => options.includes(answer)))] : [];
+      return { id, type, text: body, options, ...(correct.length ? { correct } : {}), weight: Math.round(weight * 100) / 100, ...metadata };
+    }
     const correct = options.includes(raw.correct) ? raw.correct : undefined;
     return { id, type, text: body, options, ...(correct ? { correct } : {}), weight: Math.round(weight * 100) / 100, ...metadata };
   });
@@ -64,12 +81,23 @@ export function scoreSession(exam, answers = {}, grades = {}) {
       const earned = given === q.correct ? q.weight : 0;
       score += earned;
       detail[q.id] = { mode: 'auto', earned };
+    } else if (q.type === 'multi' && q.correct?.length) {
+      let selected = given;
+      if (typeof selected === 'string') { try { selected = JSON.parse(selected); } catch { selected = []; } }
+      const actual=Array.isArray(selected)?[...new Set(selected)].sort():[];
+      const expected=[...q.correct].sort();
+      const earned = actual.length===expected.length && actual.every((value,index)=>value===expected[index]) ? q.weight : 0;
+      score += earned; detail[q.id] = { mode:'auto', earned };
+    } else if (q.type === 'numeric' && q.correct !== undefined) {
+      const value=Number(String(given ?? '').replace(',','.'));
+      const earned=answered(given) && Number.isFinite(value) && Math.abs(value-Number(q.correct))<=q.tolerance ? q.weight : 0;
+      score+=earned; detail[q.id]={mode:'auto',earned};
     } else if (grades[q.id] !== undefined) {
       const earned = Math.min(Math.max(Number(grades[q.id]), 0), q.weight);
       score += earned;
       detail[q.id] = { mode: 'manual', earned };
     } else {
-      if (given) pending += 1;
+      if (answered(given)) pending += 1;
       detail[q.id] = { mode: 'manual', earned: null };
     }
   }

@@ -8,10 +8,11 @@ initializeThemeButton();
 const SESSION_KEY = 'atlas.session';
 const queueKey = (sessionId) => `atlas.queue.${sessionId}`;
 
-const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), feedback: {}, scale: 1, answers: {}, pending: {}, closed: false, flushing: false, retryTimer: null, heartbeat: null };
+const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), feedback: {}, scale: 1, answers: {}, pending: {}, closed: false, paused:false, flushing: false, retryTimer: null, heartbeat: null };
 const flagsKey = (sessionId) => `atlas.flags.${sessionId}`;
 const scratchKey = (sessionId) => `atlas.scratch.${sessionId}`;
 const scaleKey = 'atlas.fontscale';
+const contrastKey='atlas.highcontrast';
 
 const show = (id) => { for (const s of ['join', 'confirm', 'exam', 'done']) $('#' + s).hidden = s !== id; };
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
@@ -22,8 +23,8 @@ let joinTimer;
 async function refreshJoinStatus() {
   try {
     const { exam } = await api('/api/open-exam');
-    $('#join-status').textContent = exam ? `${exam.title} está aberta. Digite o código mostrado pelo professor.` : 'Aguarde: o professor ainda não abriu a prova.';
-    $('#join-button').disabled = !exam;
+    $('#join-status').textContent = exam ? (exam.paused ? `${exam.title} está pausada. Aguarde o professor retomar.` : `${exam.title} está aberta. Digite o código mostrado pelo professor.`) : 'Aguarde: o professor ainda não abriu a prova.';
+    $('#join-button').disabled = !exam || exam.paused;
   } catch {
     $('#join-status').textContent = 'Sem conexão com o servidor. Verifique o Wi‑Fi da sala.';
     $('#join-button').disabled = true;
@@ -50,8 +51,24 @@ $('#join-form').addEventListener('submit', async (event) => {
     clearInterval(joinTimer);
     show('confirm');
   } catch (error) {
-    $('#join-error').textContent = error.message;
+    $('#join-error').textContent = error.code === 'student_not_found'
+      ? 'Seu número não aparece na lista. Você pode enviar um pedido de autorização ao professor.'
+      : error.message;
+    const unlisted = error.code === 'student_not_found';
+    $('#join-name-wrap').hidden = !unlisted;
+    $('#join-request').hidden = !unlisted;
+    $('#join-request-status').hidden = true;
   }
+});
+$('#join-request').addEventListener('click', async () => {
+  $('#join-error').textContent = '';
+  try {
+    const result = await api('/api/join-requests', { method:'POST', body:{ code:$('#code').value.trim(), number:$('#number').value.trim(), name:$('#join-name').value.trim() } });
+    $('#join-request-status').textContent = result.message;
+    $('#join-request-status').hidden = false;
+    $('#join-name-wrap').hidden = true;
+    $('#join-request').hidden = true;
+  } catch (error) { $('#join-error').textContent = error.message; }
 });
 $('#confirm-no').addEventListener('click', showJoin);
 $('#confirm-yes').addEventListener('click', async () => {
@@ -66,6 +83,7 @@ async function startSession(code, number, token) {
   state.exam = data.exam;
   state.feedback = {};
   state.closed = false;
+  state.paused = false;
   state.answers = data.answers;
   state.pending = readJson(queueKey(data.session.id)) || {};
   writeJson(SESSION_KEY, { code, number, sessionId: data.session.id, token: data.session.token });
@@ -76,7 +94,14 @@ async function startSession(code, number, token) {
 }
 
 // ---------- 2. prova (uma questão por vez)
-const currentAnswer = (qid) => (qid in state.pending ? state.pending[qid] : state.answers[qid] || '');
+const currentAnswer = (qid) => {
+  const q=state.questions.find((item)=>item.id===qid);
+  const value=qid in state.pending?state.pending[qid]:state.answers[qid]||'';
+  if(q?.type==='multi') { if(Array.isArray(value))return value; try{return JSON.parse(value||'[]');}catch{return [];} }
+  return value;
+};
+const hasAnswer=(value)=>Array.isArray(value)?value.length>0:String(value??'').trim().length>0;
+const sameAnswer=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const letter = (i) => String.fromCharCode(65 + i);
 const formatWeight = (w) => String(w).replace('.', ',');
 
@@ -89,6 +114,7 @@ function renderExam() {
   state.flags = new Set(readJson(flagsKey(state.session.id)) || []);
   state.scale = Number(readJson(scaleKey)) || 1;
   document.documentElement.style.setProperty('--fs', String(state.scale));
+  document.documentElement.dataset.contrast=readJson(contrastKey)?'high':'normal';
 
   const className = state.student.className;
   $('#exam-title').textContent = className ? `${className} · ${q.title}` : q.title;
@@ -108,6 +134,7 @@ function renderExam() {
 }
 
 function renderQuestion() {
+  $('#submit').disabled=state.closed || state.paused;
   const total = state.questions.length;
   if (!total) {
     $('#hud-label').textContent = 'Prova em PDF';
@@ -126,12 +153,18 @@ function renderQuestion() {
   if (q.type === 'choice') {
     control = h('fieldset', { class: 'opts', style: 'border:0;padding:0;margin:0', 'aria-labelledby': 'q-text' },
       q.options.map((option, i) => h('label', { class: 'opt' },
-        h('input', { type: 'radio', name: q.id, value: option, checked: currentAnswer(q.id) === option, disabled: state.closed || !!state.feedback[q.id], onchange: () => saveChoice(q.id, option) }),
+        h('input', { type: 'radio', name: q.id, value: option, checked: currentAnswer(q.id) === option, disabled: state.closed || state.paused || !!state.feedback[q.id], onchange: () => saveChoice(q.id, option) }),
         h('span', { class: 'letter' }, letter(i)), h('span', {}, option))));
+  } else if(q.type==='multi') {
+    const selected=currentAnswer(q.id);
+    control=h('fieldset',{class:'opts',style:'border:0;padding:0;margin:0','aria-labelledby':'q-text'},
+      q.options.map((option,i)=>h('label',{class:'opt'},
+        h('input',{type:'checkbox',name:q.id,value:option,checked:selected.includes(option),disabled:state.closed||state.paused||!!state.feedback[q.id],onchange:()=>saveMultiAnswer(q.id,option)}),
+        h('span',{class:'letter'},letter(i)),h('span',{},option))));
   } else {
     let timer;
-    control = h('textarea', {
-      name: q.id, rows: 6, placeholder: 'Digite sua resposta', value: currentAnswer(q.id), disabled: state.closed, 'aria-labelledby': 'q-text',
+    control = q.type==='numeric' ? h('input', { type:'number',step:'any',name:q.id,placeholder:'Digite o valor',value:currentAnswer(q.id),disabled:state.closed||state.paused,'aria-labelledby':'q-text',oninput:(event)=>{clearTimeout(timer);const value=event.target.value;markSaving();timer=setTimeout(()=>saveTextAnswer(q.id,value),500);},onblur:(event)=>{clearTimeout(timer);if(event.target.value!==currentAnswer(q.id))saveTextAnswer(q.id,event.target.value);} }) : h('textarea', {
+      name: q.id, rows: 6, placeholder: 'Digite sua resposta', value: currentAnswer(q.id), disabled: state.closed || state.paused, 'aria-labelledby': 'q-text',
       oninput: (event) => { clearTimeout(timer); const value = event.target.value; markSaving(); timer = setTimeout(() => saveTextAnswer(q.id, value), 500); },
       onblur: (event) => { clearTimeout(timer); if (event.target.value !== currentAnswer(q.id)) saveTextAnswer(q.id, event.target.value); },
     });
@@ -140,20 +173,24 @@ function renderQuestion() {
   clear($('#q-card'),
     h('div', { class: 'q-meta' },
       h('div', {}, h('div', { class: 'eyebrow' }, q.type === 'choice' ? `Peso ${formatWeight(q.weight)}` : `Questão aberta · peso ${formatWeight(q.weight)}`),
-        h('h1', { class: 'q-num' }, `Questão ${state.index + 1} `, h('small', {}, `de ${total}`))),
+      h('h1', { class: 'q-num' }, `Questão ${state.index + 1} `, h('small', {}, `de ${total}`))),
       h('div', { class: 'q-tools', role: 'toolbar', 'aria-label': 'Ferramentas' },
         h('button', { type: 'button', title: 'Diminuir a letra', 'aria-label': 'Diminuir a letra', onclick: () => setScale(-0.1) }, 'A−'),
         h('button', { type: 'button', title: 'Aumentar a letra', 'aria-label': 'Aumentar a letra', onclick: () => setScale(0.1) }, 'A+'),
+        h('button',{type:'button',title:'Ouvir enunciado e alternativas','aria-label':'Ouvir questão',onclick:()=>speakQuestion(q)},'🔊'),
+        h('button',{type:'button','aria-pressed':String(document.documentElement.dataset.contrast==='high'),title:'Alternar alto contraste',onclick:toggleHighContrast},'◐ Contraste'),
         h('button', { type: 'button', 'aria-pressed': String(flagged), title: 'Marcar para revisar depois (R)', onclick: toggleFlag }, flagged ? '⚑ Revisar' : '⚐ Revisar'))),
     h('div', { class: 'q-text', id: 'q-text' }, q.text),
+    q.image&&h('img',{src:q.image,alt:q.imageAlt||'Imagem da questão',style:'display:block;max-width:100%;max-height:55vh;object-fit:contain;border-radius:12px'}),
     control,
-    state.exam.feedback && state.feedback[q.id] && state.feedback[q.id].answer === currentAnswer(q.id) && h('div', { class: `notice ${state.feedback[q.id].correct && state.feedback[q.id].answer !== state.feedback[q.id].correct ? 'warn' : ''}` },
-      h('strong', {}, state.feedback[q.id].correct ? (state.feedback[q.id].answer === state.feedback[q.id].correct ? 'Resposta correta!' : `Resposta correta: ${state.feedback[q.id].correct}`) : 'Orientação do professor'),
+    q.type==='multi'&&state.exam.feedback&&!state.feedback[q.id]&&hasAnswer(currentAnswer(q.id))&&h('button',{class:'btn secondary',disabled:state.closed||state.paused,onclick:()=>checkMultiAnswer(q)},'Confirmar resposta e ver feedback'),
+    state.exam.feedback && state.feedback[q.id] && sameAnswer(state.feedback[q.id].answer,currentAnswer(q.id)) && h('div', { class: `notice ${state.feedback[q.id].correct && !feedbackIsCorrect(q,state.feedback[q.id]) ? 'warn' : ''}` },
+      h('strong', {}, state.feedback[q.id].correct ? (feedbackIsCorrect(q,state.feedback[q.id]) ? 'Resposta correta!' : `Resposta correta: ${Array.isArray(state.feedback[q.id].correct)?state.feedback[q.id].correct.join(', '):state.feedback[q.id].correct}`) : 'Orientação do professor'),
       state.feedback[q.id].explanation && h('p', {}, state.feedback[q.id].explanation)),
     h('div', { class: 'q-nav' },
       h('button', { class: 'btn secondary', type: 'button', disabled: state.index === 0, onclick: () => go(state.index - 1) }, '← Anterior'),
-      h('button', { class: 'btn quiet', type: 'button', disabled: state.closed || !currentAnswer(q.id), onclick: clearAnswer }, q.type === 'choice' ? 'Limpar seleção' : 'Limpar resposta'),
-      last ? h('button', { class: 'btn', type: 'button', onclick: openSubmit }, 'Revisar e entregar')
+      h('button', { class: 'btn quiet', type: 'button', disabled: state.closed || state.paused || !hasAnswer(currentAnswer(q.id)), onclick: clearAnswer }, q.type === 'choice' ? 'Limpar seleção' : 'Limpar resposta'),
+      last ? h('button', { class: 'btn', type: 'button', disabled:state.closed || state.paused, onclick: openSubmit }, 'Revisar e entregar')
         : h('button', { class: 'btn', type: 'button', onclick: () => go(state.index + 1) }, 'Próxima →')));
   refreshSide();
 }
@@ -169,19 +206,31 @@ function setScale(delta) {
   document.documentElement.style.setProperty('--fs', String(state.scale));
   writeJson(scaleKey, state.scale);
 }
+function speakQuestion(question) {
+  if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window)){toast('Leitura em voz alta não está disponível neste aparelho.');return;}
+  speechSynthesis.cancel();
+  const text=[question.text,...(question.options||[])].join('. ');
+  const speech=new SpeechSynthesisUtterance(text);speech.lang='pt-BR';speechSynthesis.speak(speech);
+}
+function toggleHighContrast() {
+  const enabled=document.documentElement.dataset.contrast!=='high';
+  document.documentElement.dataset.contrast=enabled?'high':'normal';
+  writeJson(contrastKey,enabled);
+  renderQuestion();
+}
 function toggleFlag() {
   const id = state.questions[state.index].id;
   state.flags.has(id) ? state.flags.delete(id) : state.flags.add(id);
   writeJson(flagsKey(state.session.id), [...state.flags]);
   renderQuestion();
 }
-function clearAnswer() { if (!state.closed) { setAnswer(state.questions[state.index].id, ''); renderQuestion(); } }
+function clearAnswer() { if (!state.closed && !state.paused) { const q=state.questions[state.index]; setAnswer(q.id,q.type==='multi'?[]:''); renderQuestion(); } }
 
 // painel lateral: contagens, barra e grade de questões
 function refreshSide() {
   if (!state.questions.length) return;
   const total = state.questions.length;
-  const done = state.questions.filter((q) => currentAnswer(q.id)).length;
+  const done = state.questions.filter((q) => hasAnswer(currentAnswer(q.id))).length;
   const flagged = state.questions.filter((q) => state.flags.has(q.id)).length;
   $('#n-done').textContent = done; $('#n-flag').textContent = flagged; $('#n-open').textContent = total - done;
   $('#pct').textContent = `${Math.round((done / total) * 100)}%`;
@@ -197,7 +246,7 @@ function refreshSide() {
     button.setAttribute('aria-current', i === state.index ? 'true' : 'false');
   }
 }
-const updateProgress = () => { refreshSide(); const total = state.questions.length; return { total, answered: state.questions.filter((q) => currentAnswer(q.id)).length }; };
+const updateProgress = () => { refreshSide(); const total = state.questions.length; return { total, answered: state.questions.filter((q) => hasAnswer(currentAnswer(q.id))).length }; };
 
 // rascunho (só neste aparelho)
 let scratchTimer;
@@ -251,6 +300,7 @@ $('#doc-close').addEventListener('click', () => $('#doc-dialog').close());
 
 // ---------- 3. salvamento com fila local
 function setAnswer(qid, value) {
+  if (state.closed || state.paused) return;
   state.pending[qid] = value;
   writeJson(queueKey(state.session.id), state.pending);
   updateProgress();
@@ -264,6 +314,24 @@ async function saveChoice(qid, value) {
   for (let i = 0; i < 40 && qid in state.pending; i++) await new Promise((resolve) => setTimeout(resolve, 100));
   if (qid in state.pending) return;
   await requestFeedback(qid, value);
+}
+function saveMultiAnswer(qid, option) {
+  const selected=[...currentAnswer(qid)];
+  const next=selected.includes(option)?selected.filter((value)=>value!==option):[...selected,option];
+  delete state.feedback[qid];
+  setAnswer(qid,next);
+  if(state.questions[state.index]?.id===qid)renderQuestion();
+}
+async function checkMultiAnswer(question) {
+  const answer=currentAnswer(question.id);
+  await flush();
+  if (!(question.id in state.pending)) await requestFeedback(question.id,answer);
+}
+function feedbackIsCorrect(question, feedback) {
+  if(feedback.correct===null || feedback.correct===undefined)return true;
+  if(question.type==='multi')return sameAnswer([...feedback.answer].sort(),[...feedback.correct].sort());
+  if(question.type==='numeric')return Number.isFinite(Number(feedback.answer))&&Math.abs(Number(feedback.answer)-Number(feedback.correct))<=(question.tolerance||0);
+  return feedback.answer===feedback.correct;
 }
 async function saveTextAnswer(qid, value) {
   delete state.feedback[qid];
@@ -301,6 +369,11 @@ async function flush() {
         writeJson(queueKey(state.session.id), state.pending);
       } catch (error) {
         if (error.code === 'exam_closed') { lockExam('O professor encerrou a prova. Suas respostas já salvas foram mantidas.'); return; }
+        if (error.code === 'exam_paused' || error.code === 'session_paused') {
+          setStatus('pending', 'Prova pausada — respostas aguardando retomada');
+          state.retryTimer = setTimeout(flush, 3000);
+          return;
+        }
         if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 429) {
           delete state.pending[qid]; // resposta recusada pelo servidor: não adianta repetir
           writeJson(queueKey(state.session.id), state.pending);
@@ -325,7 +398,14 @@ async function beat() {
   try {
     const result = await api('/api/session/heartbeat', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token } });
     if (result.submitted) finish();
+    else if (result.examPaused || result.studentPaused) {
+      state.paused=true;
+      $('#banner').textContent=result.studentPaused?'O professor pausou sua prova individual. Aguarde a liberação.':'A prova foi pausada pelo professor. Suas respostas ficam salvas.';
+      $('#banner').hidden=false;
+      renderQuestion();
+    }
     else if (!result.examOpen) lockExam('O professor encerrou a prova.');
+    else if (state.paused) { state.paused=false; $('#banner').hidden=true; renderQuestion(); }
     if (Object.keys(state.pending).length) flush();
   } catch { /* o indicador de salvamento já avisa sobre a conexão */ }
 }
@@ -342,7 +422,7 @@ function lockExam(message) {
 const dialog = $('#submit-dialog');
 function openSubmit() {
   const { total, answered } = updateProgress();
-  const blanks = state.questions.map((q, i) => (currentAnswer(q.id) ? null : i + 1)).filter(Boolean);
+  const blanks = state.questions.map((q, i) => (hasAnswer(currentAnswer(q.id)) ? null : i + 1)).filter(Boolean);
   const marked = state.questions.map((q, i) => (state.flags.has(q.id) ? i + 1 : null)).filter(Boolean);
   const parts = [];
   if (blanks.length) parts.push(`Você respondeu ${answered} de ${total}. Em branco: ${blanks.join(', ')}.`);
@@ -355,7 +435,7 @@ function openSubmit() {
 $('#submit').addEventListener('click', openSubmit);
 $('#submit-cancel').addEventListener('click', () => {
   dialog.close();
-  const first = state.questions.findIndex((q) => !currentAnswer(q.id));
+  const first = state.questions.findIndex((q) => !hasAnswer(currentAnswer(q.id)));
   if (first >= 0) go(first);
 });
 $('#submit-confirm').addEventListener('click', async () => {

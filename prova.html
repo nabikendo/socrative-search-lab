@@ -18,8 +18,11 @@
         </div>
         <label class="field"><span>Código da prova</span><input id="code" class="code-input" inputmode="numeric" maxlength="4" placeholder="0000" required /></label>
         <label class="field"><span>Seu número na lista de frequência</span><input id="number" class="num-input" inputmode="numeric" maxlength="3" placeholder="0" required /></label>
+        <label id="join-name-wrap" class="field" hidden><span>Nome completo</span><input id="join-name" maxlength="180" autocomplete="name" /></label>
         <p id="join-error" class="error" role="alert"></p>
+        <p id="join-request-status" class="notice" role="status" hidden></p>
         <button id="join-button" class="btn big block" type="submit" disabled>Continuar</button>
+        <button id="join-request" class="btn secondary block" type="button" hidden>Solicitar autorização ao professor</button>
       </form>
     </main>
 

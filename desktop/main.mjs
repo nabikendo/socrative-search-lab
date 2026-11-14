@@ -60,17 +60,30 @@ async function start() {
   fs.mkdirSync(dataDir, { recursive: true });
   const pin = getPin(dataDir);
   atlas = createApp({ dataDir, pin });
-  await new Promise((resolve, reject) => {
-    atlas.server.once('error', reject);
-    atlas.server.listen(0, '0.0.0.0', () => {
-      atlas.server.removeListener('error', reject);
-      resolve();
-    });
-  });
+  let listening = false;
+  for (const candidate of [80, 8080, 0]) {
+    try {
+      await new Promise((resolve, reject) => {
+        const fail = (error) => { atlas.server.removeListener('listening', resolve); reject(error); };
+        atlas.server.once('error', fail);
+        atlas.server.listen(candidate, '0.0.0.0', () => { atlas.server.removeListener('error', fail); resolve(); });
+      });
+      listening = true;
+      break;
+    } catch (error) {
+      if (!['EADDRINUSE', 'EACCES'].includes(error.code)) throw error;
+    }
+  }
+  if (!listening) throw new Error('Não foi possível escolher uma porta para o Atlas.');
   const port = atlas.server.address().port;
-  const studentUrls = () => Object.values(os.networkInterfaces()).flat()
+  const studentUrls = () => {
+    const hostname = os.hostname().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+    const suffix = port === 80 ? '' : `:${port}`;
+    const alias = hostname ? [`http://${hostname}.local${suffix}/prova`] : [];
+    return [...alias, ...Object.values(os.networkInterfaces()).flat()
     .filter((net) => net?.family === 'IPv4' && !net.internal)
-    .map((net) => 'http://' + net.address + ':' + port + '/prova');
+    .map((net) => 'http://' + net.address + suffix + '/prova')];
+  };
   window = new BrowserWindow({
     width: 1200, height: 800, minWidth: 820, minHeight: 600,
     title: 'Atlas — Provas',

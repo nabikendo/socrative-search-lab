@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Atlas — Acompanhamento</title>
+    <link rel="stylesheet" href="/src/styles/base.css" />
+    <style>
+      body { min-height:100vh; padding:clamp(18px,4vw,56px); }
+      .projector { max-width:1280px; margin:auto; }
+      .projector h1 { font-size:clamp(32px,6vw,72px); margin:0; }
+      .projector .hero { font-size:clamp(60px,12vw,140px); line-height:1; font-weight:800; letter-spacing:.12em; }
+      .projector-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:32px 0; }
+      .projector-stat { padding:clamp(16px,3vw,30px); border-radius:var(--radius); background:var(--surface); }
+      .projector-stat strong { display:block; font-size:clamp(32px,5vw,60px); }
+      .projector-questions { display:grid; gap:12px; }
+      .projector-question { padding:16px 20px; border-radius:var(--radius); background:var(--surface); }
+      .projector-question .progress { margin-top:10px; height:12px; }
+      @media(max-width:700px){.projector-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    </style>
+  </head>
+  <body>
+    <main class="projector" aria-live="polite">
+      <p class="eyebrow">Atlas · acompanhamento ao vivo</p>
+      <h1 id="title">Carregando prova…</h1>
+      <p id="status" class="lead">Conectando ao painel do professor</p>
+      <div id="code" class="hero"></div>
+      <section class="projector-stats" aria-label="Resumo da turma">
+        <div class="projector-stat"><span class="caption">Iniciaram</span><strong id="started">—</strong></div>
+        <div class="projector-stat"><span class="caption">Conectados</span><strong id="online">—</strong></div>
+        <div class="projector-stat"><span class="caption">Entregaram</span><strong id="submitted">—</strong></div>
+        <div class="projector-stat"><span class="caption">Ainda não iniciaram</span><strong id="waiting">—</strong></div>
+      </section>
+      <h2 class="headline">Respostas por questão</h2>
+      <section id="questions" class="projector-questions"></section>
+      <p id="error" class="error" role="alert"></p>
+    </main>
+    <script type="module" src="/src/projector.js"></script>
+  </body>
+</html>
