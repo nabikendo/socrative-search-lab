@@ -18,8 +18,11 @@
         </div>
         <label class="field"><span>Código da prova</span><input id="code" class="code-input" inputmode="numeric" maxlength="4" placeholder="0000" required /></label>
         <label class="field"><span>Seu número na lista de frequência</span><input id="number" class="num-input" inputmode="numeric" maxlength="3" placeholder="0" required /></label>
+        <label id="join-name-wrap" class="field" hidden><span>Nome completo</span><input id="join-name" maxlength="180" autocomplete="name" /></label>
         <p id="join-error" class="error" role="alert"></p>
+        <p id="join-request-status" class="notice" role="status" hidden></p>
         <button id="join-button" class="btn big block" type="submit" disabled>Continuar</button>
+        <button id="join-request" class="btn secondary block" type="button" hidden>Solicitar autorização ao professor</button>
       </form>
     </main>
 
@@ -48,6 +51,7 @@
             </div>
           </div>
           <div class="who hide-s"><strong id="student-name"></strong><span id="student-meta" class="caption"></span></div>
+          <button data-theme-toggle class="btn quiet sm" type="button">Tema</button>
           <button id="submit" class="btn sm" type="button">Entregar prova</button>
         </div>
       </header>
@@ -92,6 +96,12 @@
         <div class="check" aria-hidden="true">✓</div>
         <h1 class="title-m">Prova enviada</h1>
         <p class="lead" style="font-size: 17px">Suas respostas foram recebidas. Você já pode fechar esta página.</p>
+        <p id="delivery-receipt" class="caption"></p>
+        <div id="review-actions" hidden>
+          <button id="review-button" class="btn secondary" type="button">Consultar devolutiva</button>
+          <div id="review-results" class="stack-s" aria-live="polite"></div>
+          <button id="return-to-join" class="btn quiet" type="button">Entrar em outra prova</button>
+        </div>
       </div>
     </main>
 

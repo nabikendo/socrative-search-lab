@@ -23,22 +23,28 @@ function splitDelimited(text, delimiter) {
 
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
 
-export function parseRosterText(text) {
+export function parseRosterTextDetailed(text) {
   const rows = [];
-  for (const raw of String(text).split(/\r?\n/)) {
+  const source = String(text);
+  // O Diário de Classe SEDUC-TO informa turma no cabeçalho, enquanto as
+  // linhas da tabela trazem somente número e nome. Reaproveitamos a turma
+  // do cabeçalho em cada aluno para a prévia e para a lista persistida.
+  const classMatch = source.match(/\bTurma\s*:\s*([^\r\n|]+)/i);
+  const headerClass = clean(classMatch?.[1]?.split(/\s{2,}/)[0]?.trim());
+  for (const raw of source.split(/\r?\n/)) {
     const line = raw.replace(/^\uFEFF/, '').trim();
     if (!line) continue;
 
     let number;
     let name;
-    let className = '';
+    let className = headerClass;
 
     const delimited = line.match(/^(\d{1,3})\s*([;,\t])\s*(.*)$/);
     if (delimited) {
       number = delimited[1];
       const cells = splitDelimited(delimited[3], delimited[2]);
       name = cells[0];
-      className = cells[1] || '';
+      className = cells[1] || headerClass;
     } else {
       // Linha de PDF: "3 NOME DO ALUNO" com marcas de presença opcionais no fim.
       const plain = line.replace(/\s+/g, ' ').match(/^(\d{1,3}) (.+?)(?: [*FJ]\d*(?: \d+)*)?$/i);
@@ -48,11 +54,15 @@ export function parseRosterText(text) {
     }
 
     name = clean(name);
-    if (!name || NOT_A_STUDENT.test(name)) continue;
+    if (!name || NOT_A_STUDENT.test(name) || /^(?:n[º°.]?\s*)?aluno$/i.test(name)) continue;
     rows.push({ number: String(Number(number)), name, className: clean(className) });
   }
-  return dedupeRoster(rows);
+  const counts = new Map();
+  for (const row of rows) counts.set(row.number, (counts.get(row.number) || 0) + 1);
+  return { rows: dedupeRoster(rows), duplicates: [...counts].filter(([, count]) => count > 1).map(([number, count]) => ({ number, count })) };
 }
+
+export function parseRosterText(text) { return parseRosterTextDetailed(text).rows; }
 
 // Linhas de planilha (XLSX): [número, nome, turma?], com ou sem cabeçalho.
 export function parseRosterRows(rows) {
@@ -69,3 +79,4 @@ export function parseRosterRows(rows) {
 export function dedupeRoster(rows) {
   return [...new Map(rows.map((row) => [row.number, row])).values()];
 }
+

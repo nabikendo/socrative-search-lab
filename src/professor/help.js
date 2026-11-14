@@ -4,9 +4,14 @@ import { h, clear, toast, plural } from '../lib/dom.js';
 let root;
 let timer;
 let diagBox;
+let backupPolicy={intervalMinutes:5,keep:20};
+let desktopProfiles = null;
+const externalBackupKey='atlas.externalBackupAt';
 
 export function mount(el) { root = el; }
 export async function activate() {
+  try{backupPolicy=await api('/api/backups/settings');}catch{}
+  desktopProfiles = await api('/api/desktop/profiles').catch(() => null);
   render();
   await refreshDiagnostics();
   timer = setInterval(refreshDiagnostics, 3000);
@@ -23,9 +28,34 @@ const SAMPLE = [
 const guard = (fn) => async (event) => { try { await fn(event); } catch (error) { toast(error.message || 'Algo deu errado.'); } };
 const goto = (tab) => window.dispatchEvent(new CustomEvent('atlas:goto', { detail: tab }));
 
+function profileCard() {
+  const name = h('input', { maxlength: 70, required: true, autocomplete: 'off' });
+  const pin = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]{6}', maxlength: 6, required: true, autocomplete: 'new-password' });
+  const active = desktopProfiles.profiles.find((profile) => profile.id === desktopProfiles.active);
+  return h('div', { class: 'card stack-s' },
+    h('h2', { class: 'headline' }, 'Perfis de professor'),
+    h('p', { class: 'sub' }, `Perfil atual: ${active?.name ?? ''}`),
+    h('form', { class: 'stack-s', onsubmit: guard(async (event) => {
+      event.preventDefault();
+      desktopProfiles = await api('/api/desktop/profiles', { method: 'POST', body: { name: name.value, pin: pin.value } });
+      render();
+      toast('Perfil criado');
+    }) },
+    h('label', { class: 'field' }, 'Nome', name),
+    h('label', { class: 'field' }, 'PIN de seis dígitos', pin),
+    h('button', { class: 'btn secondary', type: 'submit' }, 'Criar perfil')),
+    h('div', { class: 'class-grid' }, desktopProfiles.profiles.filter((profile) => profile.id !== desktopProfiles.active).map((profile) =>
+      h('button', { class: 'btn quiet', onclick: guard(async () => {
+        if (confirm(`Salvar o trabalho e reabrir o Atlas no perfil ${profile.name}?`)) {
+          await api('/api/desktop/profiles/switch', { method: 'POST', body: { id: profile.id } });
+        }
+      }) }, `Abrir ${profile.name}`))));
+}
+
 function render() {
   clear(root, h('div', { class: 'stack' },
     h('h1', { class: 'title' }, 'Ajuda'),
+    desktopProfiles && profileCard(),
 
     h('div', { class: 'card stack-s' },
       h('h2', { class: 'headline' }, 'Primeiros passos'),
@@ -42,25 +72,45 @@ function render() {
     h('div', { class: 'card stack-s' },
       h('div', { class: 'row between' }, h('h2', { class: 'headline' }, 'Testar a conexão'), h('button', { class: 'btn secondary', onclick: guard(refreshDiagnostics) }, 'Testar de novo')),
       h('p', { class: 'sub' }, 'Confira se os alunos conseguem entrar. A lista atualiza sozinha: peça a um aluno para abrir o endereço e veja o aparelho aparecer aqui.'),
+      h('a',{class:'btn quiet',href:'/api/diagnostics/report.txt',download:''},'Salvar diagnóstico sem dados de alunos'),
       (diagBox = h('div', { class: 'checks' }, h('p', { class: 'caption' }, 'Verificando…')))),
 
     h('div', { class: 'card stack-s' },
       h('h2', { class: 'headline' }, 'Backup e restauração'),
       h('p', { class: 'sub' }, 'O backup é um único arquivo com a turma, as provas, as respostas e os anexos. Guarde em um pendrive ou na nuvem. O Atlas também faz cópias automáticas na pasta data/backups.'),
+      h('div',{class:'row'},
+        h('label',{class:'field'},h('span',{},'Intervalo de cópias automáticas'),h('select',{id:'backup-interval',value:String(backupPolicy.intervalMinutes)},...[5,15,30,60].map(n=>h('option',{value:String(n)},`${n} minutos`)))),
+        h('label',{class:'field'},h('span',{},'Manter cópias automáticas'),h('select',{id:'backup-keep',value:String(backupPolicy.keep)},...[10,20,60].map(n=>h('option',{value:String(n)},`${n} cópias`)))),
+        h('button',{class:'btn secondary',onclick:guard(async()=>{
+          const settings={intervalMinutes:Number(root.querySelector('#backup-interval').value),keep:Number(root.querySelector('#backup-keep').value)};
+          backupPolicy=(await api('/api/backups/settings',{method:'POST',body:settings})).settings;
+          toast('Política de backup salva.');
+        })},'Salvar política')),
       h('div', { class: 'row' },
         h('a', { class: 'btn secondary', href: '/api/backup', download: '' }, 'Baixar backup agora'),
+        h('button',{class:'btn quiet',onclick:()=>{if(!confirm('Você já baixou e guardou uma cópia do Atlas em um pendrive ou nuvem?'))return;localStorage.setItem(externalBackupKey,String(Date.now()));toast('Lembrete de cópia externa atualizado.');render();}},'Registrar cópia externa'),
         h('input', { type: 'file', id: 'restore-file', accept: '.atlas,application/json', hidden: true, onchange: guard(restore) }),
         h('label', { class: 'btn quiet', for: 'restore-file' }, 'Restaurar de um backup…')),
-      h('p', { class: 'caption' }, 'Restaurar substitui tudo o que está no Atlas agora. Uma cópia do estado atual fica guardada em data/backups antes da troca.')),
+      h('p', { class: 'caption' }, 'Restaurar substitui tudo o que está no Atlas agora. Uma cópia do estado atual fica guardada em data/backups antes da troca.'),
+      backupReminder()),
+
+    h('details',{class:'card stack-s'},h('summary',{class:'headline'},'Histórico de ações importantes'),h('button',{class:'btn quiet',onclick:guard(loadAudit)},'Carregar histórico'),h('div',{id:'audit-list',class:'stack-s'})),
+
+    h('div',{class:'card stack-s'},h('h2',{class:'headline'},'Privacidade e prazo de retenção'),h('p',{class:'sub'},'Você pode remover nomes e números de estudantes de provas já entregues antes de uma data. Notas e respostas permanecem para fins pedagógicos. A alteração é irreversível.'),h('div',{class:'row'},h('label',{class:'field'},h('span',{},'Anonimizar registros entregues antes de'),h('input',{id:'privacy-before',type:'date',value:defaultRetentionDate()})),h('button',{class:'btn danger',onclick:guard(anonymizeOldStudents)},'Pré-visualizar e anonimizar')),h('p',{id:'privacy-status',class:'caption','aria-live':'polite'},'Nada será alterado até você revisar a quantidade e confirmar.')),
 
     h('div', { class: 'card stack-s' },
       h('h2', { class: 'headline' }, 'Dúvidas frequentes'),
       faq('Os alunos não conseguem abrir a página', 'Use “Testar a conexão” acima. Confira se o computador e os aparelhos estão no mesmo Wi‑Fi e se os alunos usam o endereço com números (192.168…), nunca “localhost”. No Windows, permita o Atlas no Firewall para Redes privadas.'),
+      faq('Dois professores podem aplicar provas ao mesmo tempo?', 'Sim. Cada computador do professor tem seu próprio endereço e código de prova; os alunos usam o QR Code daquele professor. Um único endereço geral para toda a escola exige um servidor e um nome de rede configurados pela escola.'),
       faq('Esqueci o PIN', 'Abra o arquivo data/pin.txt dentro da pasta do Atlas. O PIN também aparece na janela preta ao iniciar.'),
       faq('Um aluno enviou sem querer', 'Em Resultados, abra o aluno e clique em “Reabrir para o aluno”.'),
       faq('Quero mudar uma prova que já tem respostas', 'As questões ficam travadas. Use “Duplicar” na aba Prova e altere a cópia.'),
       faq('O PDF não aparece direito no celular do aluno', 'O Atlas desenha o PDF dentro da prova, então deve aparecer. Se uma página falhar, o aluno pode tocar em “Abrir em outra aba”. Um DOCX também funciona.'))));
 }
+
+async function loadAudit(){const {events}=await api('/api/audit?limit=50');const list=root.querySelector('#audit-list');clear(list,...events.map(event=>h('div',{class:'notice'},h('strong',{},event.createdAt),h('div',{},`${event.event} · ${event.detail}`))));}
+function defaultRetentionDate(){const date=new Date();date.setFullYear(date.getFullYear()-1);return date.toISOString().slice(0,10);}
+async function anonymizeOldStudents(){const before=root.querySelector('#privacy-before').value;if(!before)throw new Error('Escolha a data limite.');const preview=await api(`/api/privacy/anonymization/preview?before=${encodeURIComponent(before)}`);const status=root.querySelector('#privacy-status');status.textContent=`Serão anonimizados ${preview.students} estudantes e ${preview.sessions} sessões antigas.`;if(!preview.sessions){toast('Não há provas entregues antes dessa data.');return;}if(!confirm(`Anonimizar nomes e números de ${preview.students} estudantes em ${preview.sessions} sessões? A operação não pode ser desfeita.`))return;const result=await api('/api/privacy/anonymization',{method:'POST',body:{before}});status.textContent=`Concluído: ${result.students} estudantes e ${result.sessions} sessões anonimizadas. As respostas e notas foram preservadas.`;toast('Dados pessoais anonimizados.');}
 
 const faq = (title, text) => h('details', { class: 'faq' }, h('summary', {}, title), h('p', { class: 'sub' }, text));
 
@@ -80,11 +130,23 @@ async function restore(event) {
   const file = event.target.files[0];
   event.target.value = '';
   if (!file) return;
-  if (!confirm('Restaurar este backup vai SUBSTITUIR tudo o que está no Atlas agora (turma, provas e respostas).\n\nUma cópia do estado atual será guardada antes. Continuar?')) return;
-  const result = await api('/api/restore', { method: 'POST', raw: file });
-  toast(`Backup restaurado: ${plural(result.exams, 'prova', 'provas')} e ${plural(result.students, 'aluno', 'alunos')}`);
+  const verified=await api('/api/restore/verify',{method:'POST',raw:file});
+  let result;
+  if(confirm(`Backup íntegro: ${verified.exams} provas e ${verified.students} registros de estudantes.\n\nOK: substituir todos os dados atuais.\nCancelar: escolher turmas e provas para restaurar.`)) result=await api('/api/restore', { method: 'POST', raw: file });
+  else{
+    const menu=[...verified.classes.map((c,i)=>`T${i+1}: Turma ${c.name}`),...verified.examList.map((e,i)=>`P${i+1}: Prova ${e.title}`)].join('\n');
+    const selected=prompt(`Restauração seletiva: digite os códigos separados por vírgula (ex.: T1,P2).\n\n${menu}`);if(!selected)return;
+    const tokens=selected.toUpperCase().split(/[\s,;]+/).filter(Boolean);const classes=tokens.filter(x=>/^T\d+$/.test(x)).map(x=>verified.classes[Number(x.slice(1))-1]?.id).filter(Boolean);const exams=tokens.filter(x=>/^P\d+$/.test(x)).map(x=>verified.examList[Number(x.slice(1))-1]?.id).filter(Boolean);
+    if(!classes.length&&!exams.length){toast('Nenhuma turma ou prova válida foi selecionada.');return;}
+    const params=new URLSearchParams();for(const id of classes)params.append('class',id);for(const id of exams)params.append('exam',id);
+    if(!confirm(`Restaurar ${classes.length} turma(s) e ${exams.length} prova(s)? Os dados selecionados serão mesclados aos atuais. Continuar?`))return;
+    result=await api(`/api/restore/selective?${params}`,{method:'POST',raw:file});
+  }
+  toast(`Backup restaurado: ${plural(result.exams, 'prova', 'provas')} e ${plural(result.students??result.classes, 'registro', 'registros')}`);
   setTimeout(() => location.reload(), 1200);
 }
+
+function backupReminder(){const last=Number(localStorage.getItem(externalBackupKey)||0);const days=last?Math.floor((Date.now()-last)/86400000):null;return h('p',{class:`notice ${days===null||days>=30?'warn':''}`},days===null?'Lembrete: mantenha uma cópia recente também fora deste computador.':days>=30?`A última cópia externa foi marcada há ${days} dias. Baixe e guarde uma cópia atual.`:`Cópia externa marcada há ${days} dia(s).`);}
 
 // ---------- diagnóstico de rede
 const row = (state, title, text) => h('div', { class: `check ${state}` }, h('span', { class: 'check-dot', 'aria-hidden': 'true' }), h('div', {}, h('div', { class: 'check-title' }, title), text && h('div', { class: 'caption' }, text)));
@@ -97,7 +159,7 @@ function checks(d) {
   } else if (!reachable.length) {
     out.push(row('warn', 'O endereço da rede não respondeu', `${d.urls.map((u) => `${u.url}/prova`).join(' · ')}. Pode ser um bloqueio do Firewall ou do antivírus deste computador.`));
   } else {
-    out.push(row('ok', 'Endereço para os alunos', reachable.map((u) => `${u.url}/prova`).join(' · ') + (reachable.length > 1 ? '. Se um não funcionar, tente o outro.' : '')));
+    out.push(row('ok', 'Endereço para os alunos', reachable.map((u) => `${u.url}/prova`).join(' · ')));
   }
   const bad = d.interfaces.filter((i) => i.virtual || i.linkLocal);
   if (bad.length && d.interfaces.length > bad.length) out.push(row('warn', 'Há redes virtuais neste computador', `Ignore endereços de ${bad.map((i) => i.name).join(', ')}. Use o que começa com 192.168 ou 10.`));
