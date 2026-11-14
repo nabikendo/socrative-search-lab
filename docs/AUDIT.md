@@ -32,3 +32,17 @@ Revisão completa do código, com os problemas reproduzidos no servidor antigo a
 4. **Backups só do banco**; os anexos precisam de cópia manual da pasta `data/`.
 5. **Leitura de PDF da lista** é heurística e depende do layout do diário.
 6. **Interface testada em simulação de DOM**, não em Chromebooks reais.
+
+## Revisão de 14 de novembro de 2026 (1.2.0-beta.6)
+
+| Gravidade | Problema | Correção |
+| --- | --- | --- |
+| Média | O menu “Endereço para os alunos” mostrava `\n` escrito no texto, em vez de uma linha por endereço | Quebra de linha real |
+| Média | A busca automática de atualização abria avisos (“já está atualizado” / “sem conexão”) a cada abertura, inclusive em sala sem Internet | Busca automática é silenciosa; avisos só na busca manual (Alt+U) |
+| Média | A classe `.check` existia duas vezes: as linhas do diagnóstico de rede herdavam fonte de 56 px e cor verde | Marca de envio renomeada para `.done-mark` |
+| Baixa | Endereço IP pessoal fixo na ordenação dos endereços de rede | Ordem genérica (192.168.x, 10.x, demais) |
+| Baixa | Segmento selecionado ficava branco ao forçar o tema escuro com o Windows em modo claro | Cor própria por tema (`--seg-on`) |
+| Baixa | Texto do PIN citava só a “janela preta”, que não existe no aplicativo para Windows | Orientação para Atlas › Mostrar PIN |
+
+Visual: paleta neutra e cantos menores no estilo dos apps do macOS (azul do sistema, bordas finas, controles compactos, fonte do sistema), claro e escuro.
+

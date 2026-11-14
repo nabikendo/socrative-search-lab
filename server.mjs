@@ -187,7 +187,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   }
 
   function lanUrls(port) {
-    const rank = (ip) => (ip === '192.168.5.142' ? -1 : ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : 2);
+    const rank = (ip) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : 2);
     return Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal)
       .map((i) => i.address).sort((a, b) => rank(a) - rank(b)).map((ip) => `http://${ip}:${port}`);
   }

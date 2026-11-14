@@ -109,10 +109,10 @@ function render() {
     h('div', { class: 'card stack-s' },
       h('label', { class: 'field' }, h('span', {}, 'Título'), h('input', { value: m.title, placeholder: 'Ex.: Ligações químicas — 1º bimestre', oninput: (e) => { m.title = e.target.value; touch(); } })),
       h('label', { class: 'field' }, h('span', {}, 'Turma'), h('select', { value: m.classId || '', disabled: m.locked, onchange: (e) => { m.classId = e.target.value || null; touch(); } }, h('option', { value: '' }, 'Lista geral'), state.classes.map((c) => h('option', { value: c.id }, c.name)))),
-      h('label', { class: 'option', style: 'border-radius:14px' },
+      h('label', { class: 'option', style: 'border-radius:10px' },
         h('input', { type: 'checkbox', checked: !!m.shuffle, disabled: m.locked, onchange: (e) => { m.shuffle = e.target.checked; touch(); } }),
         h('span', {}, h('strong', {}, 'Embaralhar para cada aluno'), h('span', { class: 'caption', style: 'display:block' }, 'Cada aluno vê as questões e as alternativas em ordem diferente. Evite alternativas como “todas as anteriores”.'))),
-      h('label', { class: 'option', style: 'border-radius:14px' }, h('input', { type: 'checkbox', checked: !!m.feedback, disabled: m.locked, onchange: (e) => { m.feedback = e.target.checked; touch(); } }), h('span', {}, h('strong', {}, 'Mostrar feedback após cada questão'), h('span', { class: 'caption', style: 'display:block' }, 'Mostra gabarito e explicação depois que o aluno responder.')))),
+      h('label', { class: 'option', style: 'border-radius:10px' }, h('input', { type: 'checkbox', checked: !!m.feedback, disabled: m.locked, onchange: (e) => { m.feedback = e.target.checked; touch(); } }), h('span', {}, h('strong', {}, 'Mostrar feedback após cada questão'), h('span', { class: 'caption', style: 'display:block' }, 'Mostra gabarito e explicação depois que o aluno responder.')))),
 
     !m.pdfOnly && h('div', { class: `question-layout${m.document?.kind === 'pdf' ? ' with-original' : ''}` },
       h('div', { class: 'stack' }, m.questions.map((q, i) => questionCard(q, i))),
@@ -337,7 +337,7 @@ function quickText(m) {
 }
 
 function pdfOnlyOption(m) {
-  return h('label', { class: 'option card', style: 'border-radius:14px' },
+  return h('label', { class: 'option card', style: 'border-radius:10px' },
     h('input', { type: 'checkbox', checked: !!m.pdfOnly, onchange: (event) => {
       m.pdfOnly = event.target.checked;
       if (m.pdfOnly) m.questions = [];

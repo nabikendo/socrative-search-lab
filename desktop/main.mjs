@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell, Menu } from 'electron';
+import { app, BrowserWindow, dialog, shell, Menu, nativeTheme } from 'electron';
 import updater from 'electron-updater';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,7 @@ const { autoUpdater } = updater;
 
 let atlas;
 let window;
+let manualUpdateCheck=false;
 let updateChannel='beta';
 let updateChannelFile='';
 const MAIN_PROFILE = 'principal';
@@ -33,13 +34,16 @@ function useUpdateChannel(channel){
   if(updateChannelFile)fs.writeFileSync(updateChannelFile,updateChannel+'\n',{encoding:'utf8',mode:0o600});
 }
 
-async function checkUpdates() {
+async function checkUpdates(manual = true) {
+  manualUpdateCheck = manual;
   if (!app.isPackaged) {
+    if (!manual) return;
     await dialog.showMessageBox(window, { type: 'info', title: 'Atualizações', message: 'A busca de atualizações funciona na versão instalada do Atlas.' });
     return;
   }
   try { useUpdateChannel(updateChannel); await autoUpdater.checkForUpdates(); }
   catch (error) {
+    if (!manual) return; // sala sem Internet: a busca automática falha em silêncio
     await dialog.showMessageBox(window, { type: 'warning', title: 'Não foi possível buscar atualizações', message: 'Confira sua conexão com a Internet e tente novamente.', detail: error.message });
   }
 }
@@ -57,7 +61,7 @@ autoUpdater.on('update-available', async (info) => {
   });
   if (response === 0) autoUpdater.downloadUpdate().catch((error) => dialog.showErrorBox('Falha na atualização', error.message));
 });
-autoUpdater.on('update-not-available', () => dialog.showMessageBox(window, { type: 'info', title: 'Atlas atualizado', message: 'Você já está usando a versão mais recente.' }));
+autoUpdater.on('update-not-available', () => manualUpdateCheck && dialog.showMessageBox(window, { type: 'info', title: 'Atlas atualizado', message: 'Você já está usando a versão mais recente.' }));
 autoUpdater.on('update-downloaded', async (info) => {
   const { response } = await dialog.showMessageBox(window, {
     type: 'info', title: 'Atualização pronta',
@@ -140,11 +144,11 @@ async function start() {
     return Object.values(os.networkInterfaces()).flat()
       .filter((net) => net?.family === 'IPv4' && !net.internal)
       .map((net) => net.address)
-      .sort((a, b) => Number(b === '192.168.5.142') - Number(a === '192.168.5.142'))
       .map((ip) => `http://${ip}:${port}/prova`);
   };
   window = new BrowserWindow({
     width: 1200, height: 800, minWidth: 820, minHeight: 600,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f5f5f7',
     title: `Atlas — ${profile?.name ?? 'Principal'}`,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
@@ -154,7 +158,7 @@ async function start() {
       { label: 'Trocar perfil', submenu: [{ id: MAIN_PROFILE, name: 'Principal' }, ...profiles].map(({ id, name }) => ({
         label: name, enabled: id !== activeProfile, click: () => switchProfile(id),
       })) },
-      { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
+      { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
       { label: 'Buscar atualizações', accelerator: 'Alt+U', click: () => checkUpdates() },
       { label: 'Canal de atualizações', submenu: [
         {label:'Pré-lançamentos beta',type:'radio',checked:updateChannel==='beta',click:()=>{useUpdateChannel('beta');dialog.showMessageBox(window,{type:'info',title:'Canal beta selecionado',message:'O Atlas poderá oferecer versões de teste. Você pode voltar ao canal estável neste menu.'});}},
@@ -172,7 +176,7 @@ async function start() {
     if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault();
   });
   await window.loadURL('http://127.0.0.1:' + port + '/professor');
-  if (app.isPackaged) setTimeout(() => checkUpdates(), 15_000).unref?.();
+  if (app.isPackaged) setTimeout(() => checkUpdates(false), 15_000).unref?.();
 }
 
 app.on('second-instance', () => {

@@ -200,7 +200,7 @@ function renderQuestion() {
         h('button',{type:'button','aria-pressed':String(document.documentElement.dataset.contrast==='high'),title:'Alternar alto contraste',onclick:toggleHighContrast},'◐ Contraste'),
         h('button', { type: 'button', 'aria-pressed': String(flagged), title: 'Marcar para revisar depois (R)', onclick: toggleFlag }, flagged ? '⚑ Revisar' : '⚐ Revisar'))),
     h('div', { class: 'q-text', id: 'q-text' }, q.text),
-    q.image&&h('img',{src:q.image,alt:q.imageAlt||'Imagem da questão',style:'display:block;max-width:100%;max-height:55vh;object-fit:contain;border-radius:12px'}),
+    q.image&&h('img',{src:q.image,alt:q.imageAlt||'Imagem da questão',style:'display:block;max-width:100%;max-height:55vh;object-fit:contain;border-radius:10px'}),
     control,
     q.type==='multi'&&state.exam.feedback&&!state.feedback[q.id]&&hasAnswer(currentAnswer(q.id))&&h('button',{class:'btn secondary',disabled:state.closed||state.paused,onclick:()=>checkMultiAnswer(q)},'Confirmar resposta e ver feedback'),
     state.exam.feedback && state.feedback[q.id] && sameAnswer(state.feedback[q.id].answer,currentAnswer(q.id)) && h('div', { class: `notice ${state.feedback[q.id].correct && !feedbackIsCorrect(q,state.feedback[q.id]) ? 'warn' : ''}` },

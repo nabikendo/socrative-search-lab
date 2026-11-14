@@ -102,7 +102,7 @@ function render() {
       h('h2', { class: 'headline' }, 'Dúvidas frequentes'),
       faq('Os alunos não conseguem abrir a página', 'Use “Testar a conexão” acima. Confira se o computador e os aparelhos estão no mesmo Wi‑Fi e se os alunos usam o endereço com números (192.168…), nunca “localhost”. No Windows, permita o Atlas no Firewall para Redes privadas.'),
       faq('Dois professores podem aplicar provas ao mesmo tempo?', 'Sim. Cada computador do professor tem seu próprio endereço e código de prova; os alunos usam o QR Code daquele professor. Um único endereço geral para toda a escola exige um servidor e um nome de rede configurados pela escola.'),
-      faq('Esqueci o PIN', 'Abra o arquivo data/pin.txt dentro da pasta do Atlas. O PIN também aparece na janela preta ao iniciar.'),
+      faq('Esqueci o PIN', 'No aplicativo para Windows, abra o menu Atlas › Mostrar PIN do perfil principal. Na versão com janela preta, o PIN aparece nela e fica no arquivo data/pin.txt.'),
       faq('Um aluno enviou sem querer', 'Em Resultados, abra o aluno e clique em “Reabrir para o aluno”.'),
       faq('Quero mudar uma prova que já tem respostas', 'As questões ficam travadas. Use “Duplicar” na aba Prova e altere a cópia.'),
       faq('O PDF não aparece direito no celular do aluno', 'O Atlas desenha o PDF dentro da prova, então deve aparecer. Se uma página falhar, o aluno pode tocar em “Abrir em outra aba”. Um DOCX também funciona.'))));
@@ -174,5 +174,5 @@ function checks(d) {
 async function refreshDiagnostics() {
   if (!diagBox || root.hidden) return;
   try { clear(diagBox, ...checks(await api('/api/diagnostics'))); }
-  catch { clear(diagBox, row('bad', 'Não consegui falar com o Atlas', 'Verifique se a janela preta do Atlas continua aberta.')); }
+  catch { clear(diagBox, row('bad', 'Não consegui falar com o Atlas', 'Verifique se o Atlas continua aberto neste computador (no pacote com janela preta, ela precisa ficar aberta).')); }
 }
