@@ -1,5 +1,5 @@
 import { api, ApiError } from './lib/api.js';
-import { $, h, clear, plural } from './lib/dom.js';
+import { $, h, clear, plural, toast } from './lib/dom.js';
 import { orderForStudent } from '../shared/shuffle.js';
 import { initializeThemeButton } from './lib/theme.js';
 
@@ -9,7 +9,7 @@ const SESSION_KEY = 'atlas.session';
 const rehearsalId = new URLSearchParams(location.search).get('ensaio');
 const queueKey = (sessionId) => `atlas.queue.${sessionId}`;
 
-const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), feedback: {}, scale: 1, answers: {}, pending: {}, closed: false, paused:false, flushing: false, retryTimer: null, heartbeat: null };
+const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), feedback: {}, scale: 1, answers: {}, pending: {}, endsAt: null, clockOffset: 0, closed: false, paused:false, flushing: false, retryTimer: null, heartbeat: null };
 const flagsKey = (sessionId) => `atlas.flags.${sessionId}`;
 const scratchKey = (sessionId) => `atlas.scratch.${sessionId}`;
 const scaleKey = 'atlas.fontscale';
@@ -110,6 +110,7 @@ function beginSession(data, code, number) {
   else if (!state.paused) flush();
   clearInterval(state.heartbeat);
   state.heartbeat = setInterval(beat, 10000);
+  setTimeout(beat, 400);
 }
 
 // ---------- 2. prova (uma questão por vez)
@@ -422,6 +423,7 @@ async function beat() {
   if (!state.session) return;
   try {
     const result = await api('/api/session/heartbeat', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token } });
+    setClock(result);
     if (result.submitted) finish(result.receipt);
     else if (result.examPaused || result.studentPaused) {
       state.paused=true;
@@ -432,7 +434,73 @@ async function beat() {
     else if (!result.examOpen) lockExam('O professor encerrou a prova.');
     else if (state.paused) { state.paused=false; $('#banner').hidden=true; renderQuestion(); }
     if (Object.keys(state.pending).length) flush();
+    flushAway();
   } catch { /* o indicador de salvamento já avisa sobre a conexão */ }
+}
+
+// ---------- aviso ao professor quando o aluno sai da página da prova
+const AWAY_KEY = 'atlas.away';
+const away = { since: 0, hidden: false, sent: false, timer: 0, queue: readJson(AWAY_KEY) || [] };
+const examActive = () => !!state.session && !state.closed && !rehearsalId && !$('#exam').hidden;
+const credentials = () => ({ sessionId: state.session.id, token: state.session.token });
+
+function leavePage(kind) {
+  if (!examActive() || away.since) return;
+  away.since = Date.now();
+  away.hidden = kind === 'hidden';
+  away.sent = false;
+  const notify = () => { away.sent = true; api('/api/session/away', { method: 'POST', body: { ...credentials(), state: 'away' } }).catch(() => {}); };
+  // clicar na barra de endereço também tira o foco: só avisa se a saída durar alguns segundos
+  if (away.hidden) notify(); else away.timer = setTimeout(notify, 3000);
+}
+
+function returnToPage() {
+  clearTimeout(away.timer);
+  if (!away.since) return;
+  const seconds = Math.round((Date.now() - away.since) / 1000);
+  const counted = away.hidden ? seconds >= 1 : seconds >= 3;
+  away.since = 0;
+  if (!state.session || (!counted && !away.sent)) return;
+  away.queue.push({ sid: state.session.id, id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, seconds: counted ? seconds : 0 });
+  writeJson(AWAY_KEY, away.queue);
+  if (counted && !state.closed) toast(`Você saiu da página por ${seconds} s. O professor foi avisado.`);
+  flushAway();
+}
+
+async function flushAway() {
+  if (!state.session || away.flushing || !away.queue.length) return;
+  away.flushing = true;
+  try {
+    for (const item of [...away.queue]) {
+      if (item.sid !== state.session.id) { away.queue = away.queue.filter((entry) => entry !== item); continue; }
+      await api('/api/session/away', { method: 'POST', body: { ...credentials(), state: 'back', id: item.id, seconds: item.seconds } });
+      away.queue = away.queue.filter((entry) => entry !== item);
+    }
+  } catch { /* tenta de novo no próximo batimento */ }
+  finally { away.flushing = false; writeJson(AWAY_KEY, away.queue); }
+}
+
+document.addEventListener('visibilitychange', () => (document.hidden ? leavePage('hidden') : returnToPage()));
+window.addEventListener('blur', () => { if (!document.hidden) leavePage('blur'); });
+window.addEventListener('focus', () => { if (!document.hidden) returnToPage(); });
+
+// ---------- tempo restante (relógio do servidor, para não depender da hora do Chromebook)
+function updateClock() {
+  const badge = $('#hud-time');
+  if (!state.endsAt || state.closed) { badge.hidden = true; return; }
+  const left = Math.max(0, Math.floor((state.endsAt - (Date.now() + state.clockOffset)) / 1000));
+  const hours = Math.floor(left / 3600);
+  const text = `${hours ? hours + ':' : ''}${String(Math.floor((left % 3600) / 60)).padStart(hours ? 2 : 1, '0')}:${String(left % 60).padStart(2, '0')}`;
+  badge.textContent = left ? `Tempo restante ${text}` : 'Tempo encerrado';
+  badge.className = `badge${left && left <= 300 ? ' warn' : ''}`;
+  badge.hidden = false;
+}
+function setClock(result) {
+  if (typeof result.serverNow === 'number') state.clockOffset = result.serverNow - Date.now();
+  state.endsAt = result.endsAt || null;
+  clearInterval(state.clock);
+  updateClock();
+  if (state.endsAt) state.clock = setInterval(updateClock, 1000);
 }
 
 function lockExam(message) {
@@ -490,7 +558,10 @@ function finish(receipt) {
   reviewCredentials = readJson(SESSION_KEY);
   if (receipt && reviewCredentials) writeJson('atlas.last-receipt', { receipt, credentials: reviewCredentials });
   clearInterval(state.heartbeat);
+  clearInterval(state.clock);
   clearTimeout(state.retryTimer);
+  clearTimeout(away.timer);
+  away.since = 0;
   if (state.session) { for (const key of [queueKey(state.session.id), flagsKey(state.session.id), scratchKey(state.session.id)]) { try { localStorage.removeItem(key); } catch { /* ignore */ } } }
   try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   state.session = null;

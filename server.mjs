@@ -22,11 +22,13 @@ class HttpError extends Error {
   constructor(status, code, message) { super(message || code); this.status = status; this.code = code; }
 }
 
-export function createApp({ dataDir = path.join(root, 'data'), pin = process.env.ATLAS_PIN || String(crypto.randomInt(100000, 1000000)), desktopProfiles } = {}) {
+export function createApp({ dataDir = path.join(root, 'data'), pin = process.env.ATLAS_PIN || String(crypto.randomInt(100000, 1000000)), desktopProfiles, exportDir } = {}) {
   const store = openStore(dataDir);
   const adminSessions = new Map();
   const lastSeen = new Map(); // batimentos ficam só na memória: não geram escrita em disco
   const buckets = new Map();
+  const awayNow = new Map(); // alunos que saíram da página da prova agora (sessionId -> início)
+  const awayLogged = new Set(); // evita contar duas vezes o mesmo retorno reenviado
   const devices = new Map(); // aparelhos de alunos que abriram a página (para o diagnóstico de rede)
 
   // ---------- utilidades
@@ -101,6 +103,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const roster = new Map(store.getRoster().map((r) => [r.number, r]));
     const answers = store.answersForExam(exam.id);
     const grades = store.gradesForExam(exam.id);
+    const awaySummary = store.awaySummary();
     return store.listSessions(exam.id).map((s) => {
       const given = { ...(answers[s.id] || {}) };
       for (const question of exam.questions) if (question.type === 'multi' && typeof given[question.id] === 'string') {
@@ -109,6 +112,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       const result = scoreSession(exam, given, grades[s.id]);
       return {
         sessionId: s.id, number: s.number, name: s.name || roster.get(s.number)?.name || 'Aluno fora da lista', className: s.className || roster.get(s.number)?.className || '',
+        away: { now: awayNow.has(s.id) && isOnline(s) && s.status !== 'submitted', count: awaySummary[s.id]?.count || 0, seconds: awaySummary[s.id]?.seconds || 0 },
         status: s.status, online: isOnline(s), startedAt: s.startedAt, submittedAt: s.submittedAt,
         answered: Object.values(given).filter((value)=>Array.isArray(value)?value.length>0:String(value??'').trim().length>0).length, total: exam.questions.length,
         score: result.score, max: result.max, pending: result.pending, detail: result.detail, answers: given, grades: grades[s.id] || {},
@@ -123,16 +127,16 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   };
   const decimal = (n) => String(n).replace('.', ',');
   function examCsv(exam) {
-    const rows = [['numero', 'nome', 'turma', 'status', 'inicio', 'envio', 'nota', 'maximo', 'pendentes', ...exam.questions.map((q, i) => `Q${i + 1} — ${q.text}`)]];
+    const rows = [['numero', 'nome', 'turma', 'status', 'inicio', 'envio', 'nota', 'maximo', 'pendentes', 'saidas_da_pagina', 'segundos_fora', ...exam.questions.map((q, i) => `Q${i + 1} — ${q.text}`)]];
     for (const r of resultsFor(exam)) {
-      rows.push([r.number, r.name, r.className, r.status === 'submitted' ? 'enviada' : 'em andamento', r.startedAt, r.submittedAt || '', decimal(r.score), decimal(r.max), r.pending, ...exam.questions.map((q) => r.answers[q.id] || '')]);
+      rows.push([r.number, r.name, r.className, r.status === 'submitted' ? 'enviada' : 'em andamento', r.startedAt, r.submittedAt || '', decimal(r.score), decimal(r.max), r.pending, r.away.count, r.away.seconds, ...exam.questions.map((q) => r.answers[q.id] || '')]);
     }
     return '\uFEFF' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
   }
 
   function examXlsx(exam) {
     const results=resultsFor(exam);
-    const rows=[['Número','Estudante','Turma','Situação','Início','Entrega','Nota','Máximo','Pendentes',...exam.questions.map((q,i)=>`Q${i+1} — ${q.text}`)],...results.map(r=>[r.number,r.name,r.className,r.status==='submitted'?'Entregue':r.status==='paused'?'Pausada':'Em andamento',r.startedAt,r.submittedAt||'',r.score,r.max,r.pending,...exam.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join(', '):r.answers[q.id]||'')])];
+    const rows=[['Número','Estudante','Turma','Situação','Início','Entrega','Nota','Máximo','Pendentes','Saídas da página','Segundos fora',...exam.questions.map((q,i)=>`Q${i+1} — ${q.text}`)],...results.map(r=>[r.number,r.name,r.className,r.status==='submitted'?'Entregue':r.status==='paused'?'Pausada':'Em andamento',r.startedAt,r.submittedAt||'',r.score,r.max,r.pending,r.away.count,r.away.seconds,...exam.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join(', '):r.answers[q.id]||'')])];
     const xml=(value)=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');
     const column=(index)=>{let name='';for(index++;index;index=Math.floor((index-1)/26))name=String.fromCharCode(65+(index-1)%26)+name;return name;};
     const sheet=rows.map((row,r)=>`<row r="${r+1}">${row.map((value,c)=>{const ref=`${column(c)}${r+1}`;if(typeof value==='number'&&Number.isFinite(value))return `<c r="${ref}"><v>${value}</v></c>`;return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;}).join('')}</row>`).join('');
@@ -184,6 +188,20 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     offsets.slice(1).forEach((offset) => { output += `${String(offset).padStart(10, '0')} 00000 n \n`; });
     output += `trailer\n<< /Size ${objects.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF`;
     return Buffer.from(output, 'latin1');
+  }
+
+  // cópia automática ao encerrar: planilha de notas + backup completo, numa pasta que pode ficar no OneDrive ou pendrive
+  function saveCopy(exam) {
+    if (!exportDir) return;
+    try {
+      fs.mkdirSync(exportDir, { recursive: true });
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      const safe = String(exam.title || 'prova').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'prova';
+      const name = `${safe}-${stamp}`;
+      fs.writeFileSync(path.join(exportDir, `${name}.csv`), examCsv(exam), 'utf8');
+      fs.writeFileSync(path.join(exportDir, `${name}.atlas`), JSON.stringify(store.exportBackup()));
+      store.addAudit('exam_copy_saved', exam.id, name);
+    } catch (error) { console.error('Não foi possível salvar a cópia automática:', error.message); }
   }
 
   function lanUrls(port) {
@@ -259,8 +277,28 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     store.activateSchedules();
     lastSeen.set(session.id, Date.now());
     const exam = store.getExam(session.examId);
-    return { ok: true, examOpen: exam?.status === 'open' && !applicationEnded(exam, session.studentId), examPaused:exam?.status==='paused', studentPaused:session.status==='paused', submitted: session.status === 'submitted',
+    const endsAt = exam?.scheduledEnd ? Date.parse(exam.scheduledEnd) + Number(accommodation(session.studentId).extraMinutes || 0) * 60_000 : null;
+    return { ok: true, serverNow: Date.now(), endsAt, examOpen: exam?.status === 'open' && !applicationEnded(exam, session.studentId), examPaused:exam?.status==='paused', studentPaused:session.status==='paused', submitted: session.status === 'submitted',
       receipt: session.submittedAt ? { number: session.id, submittedAt: session.submittedAt } : null };
+  });
+  route('POST', '/api/session/away', async ({ req }) => {
+    limit(req, 'away', 120);
+    const input = await readJson(req);
+    const session = studentSession(input);
+    const exam = store.getExam(session.examId);
+    if (session.status === 'submitted' || !exam || !['open', 'paused'].includes(exam.status)) { awayNow.delete(session.id); return { ok: true }; }
+    lastSeen.set(session.id, Date.now());
+    if (input.state === 'away') { awayNow.set(session.id, Date.now()); return { ok: true }; }
+    if (input.state !== 'back') throw new HttpError(400, 'invalid_state');
+    awayNow.delete(session.id);
+    const seconds = Math.min(Math.max(Math.round(Number(input.seconds) || 0), 0), 6 * 3600);
+    const key = `${session.id}:${String(input.id || '').slice(0, 40)}`;
+    if (seconds >= 1 && input.id && !awayLogged.has(key)) {
+      if (awayLogged.size > 5000) awayLogged.clear();
+      awayLogged.add(key);
+      store.addAudit('student_away', session.id, String(seconds));
+    }
+    return { ok: true };
   });
   route('POST', '/api/session/restore', async ({ req }) => {
     limit(req, 'restore', 60);
@@ -330,6 +368,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const session = studentSession(await readJson(req));
     if (session.status === 'paused' || store.getExam(session.examId)?.status === 'paused') throw new HttpError(423, 'exam_paused', 'A prova está pausada pelo professor.');
     store.submit(session.id);
+    awayNow.delete(session.id);
     return { ok: true, receipt: { number: session.id, submittedAt: store.getSession(session.id).submittedAt } };
   });
   let ocrRunning = false;
@@ -612,7 +651,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return { ok: true };
   });
   route('POST', '/api/exams/:id/open', { admin: true }, ({ params }) => { const exam=needExam(params.id);const code=store.openExam(params.id);store.addAudit('exam_opened',exam.id,'Prova aberta para os alunos.');return { ok: true, code }; });
-  route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { const exam=needExam(params.id);store.closeExam(params.id);store.addAudit('exam_closed',exam.id,'Prova encerrada pelo professor.');return { ok: true }; });
+  route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { const exam=needExam(params.id);store.closeExam(params.id);store.addAudit('exam_closed',exam.id,'Prova encerrada pelo professor.');saveCopy(needExam(params.id));return { ok: true }; });
   route('POST', '/api/exams/:id/pause', { admin:true }, ({ params }) => {
     const exam=needExam(params.id);
     if (exam.status!=='open') throw new HttpError(409,'exam_not_open');
@@ -812,7 +851,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const classStudents = store.listClasses().reduce((sum, c) => sum + c.students, 0);
     let disk={available:false};
     try{const stat=fs.statfsSync(dataDir);disk={available:true,freeBytes:stat.bavail*stat.bsize,totalBytes:stat.blocks*stat.bsize};}catch{}
-    return { port, interfaces, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length + classStudents,disk };
+    return { port, desktop: !!process.versions.electron, windows: process.platform === 'win32', exportDir: exportDir || null, interfaces, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length + classStudents,disk };
   });
   route('GET','/api/diagnostics/report.txt',{admin:true},({req,res})=>{
     const port=req.socket.localPort;let disk='Indisponível';try{const stat=fs.statfsSync(dataDir);disk=`${(stat.bavail*stat.bsize/1024**3).toFixed(1)} GB livres de ${(stat.blocks*stat.bsize/1024**3).toFixed(1)} GB`;}catch{}
@@ -856,6 +895,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     if (rel === '/') rel = '/index.html';
     else if (rel === '/professor') rel = '/professor.html';
     else if (rel === '/prova') rel = '/prova.html';
+    else if (rel === '/teste') rel = '/teste.html';
     else if (rel === '/projetor') rel = '/projetor.html';
     const file = path.normalize(path.join(dist, rel));
     if (!file.startsWith(dist + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) throw new HttpError(404, 'not_found');

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Atlas — Teste de conexão</title>
+    <link rel="stylesheet" href="/src/styles/base.css" />
+  </head>
+  <body>
+    <main class="center-screen">
+      <div class="stack" style="width: min(440px, 100%)">
+        <div class="stack-s">
+          <p class="eyebrow">Atlas</p>
+          <h1 class="title-m">Teste de conexão</h1>
+          <p class="lead" style="font-size: 16px">Antes da prova, confira se este aparelho consegue falar com o computador do professor.</p>
+        </div>
+        <div id="result" class="stack-s" role="status" aria-live="polite" style="width: 100%; text-align: left">
+          <p class="caption">Testando…</p>
+        </div>
+        <div class="stack-s" style="width: 100%">
+          <a id="go" class="btn big block" href="/prova">Ir para a prova</a>
+          <button id="again" class="btn big block secondary" type="button">Testar de novo</button>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/src/teste.js"></script>
+  </body>
+</html>

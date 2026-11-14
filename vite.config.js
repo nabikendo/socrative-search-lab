@@ -9,6 +9,7 @@ export default defineConfig({
         professor: resolve(import.meta.dirname, 'professor.html'),
         prova: resolve(import.meta.dirname, 'prova.html'),
         projetor: resolve(import.meta.dirname, 'projetor.html'),
+        teste: resolve(import.meta.dirname, 'teste.html'),
       },
     },
   },

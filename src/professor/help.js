@@ -71,7 +71,7 @@ function render() {
 
     h('div', { class: 'card stack-s' },
       h('div', { class: 'row between' }, h('h2', { class: 'headline' }, 'Testar a conexão'), h('button', { class: 'btn secondary', onclick: guard(refreshDiagnostics) }, 'Testar de novo')),
-      h('p', { class: 'sub' }, 'Confira se os alunos conseguem entrar. A lista atualiza sozinha: peça a um aluno para abrir o endereço e veja o aparelho aparecer aqui.'),
+      h('p', { class: 'sub' }, 'Confira se os alunos conseguem entrar. A lista atualiza sozinha: peça a um aluno para abrir o endereço e veja o aparelho aparecer aqui. Antes da prova, os alunos também podem abrir o mesmo endereço terminado em /teste para checar a conexão.'),
       h('a',{class:'btn quiet',href:'/api/diagnostics/report.txt',download:''},'Salvar diagnóstico sem dados de alunos'),
       (diagBox = h('div', { class: 'checks' }, h('p', { class: 'caption' }, 'Verificando…')))),
 
@@ -157,12 +157,14 @@ function checks(d) {
   if (!d.urls.length) {
     out.push(row('bad', 'Este computador não está conectado a uma rede', 'Conecte-o ao Wi‑Fi da sala (ou ligue o roteador) e teste de novo.'));
   } else if (!reachable.length) {
-    out.push(row('warn', 'O endereço da rede não respondeu', `${d.urls.map((u) => `${u.url}/prova`).join(' · ')}. Pode ser um bloqueio do Firewall ou do antivírus deste computador.`));
+    out.push(row('warn', 'O endereço da rede não respondeu', `${d.urls.map((u) => `${u.url}/prova`).join(' · ')}. Pode ser um bloqueio do Firewall ou do antivírus deste computador. No aplicativo para Windows, use o menu Atlas › Liberar no Firewall do Windows.`));
   } else {
     out.push(row('ok', 'Endereço para os alunos', reachable.map((u) => `${u.url}/prova`).join(' · ')));
   }
   const bad = d.interfaces.filter((i) => i.virtual || i.linkLocal);
   if (bad.length && d.interfaces.length > bad.length) out.push(row('warn', 'Há redes virtuais neste computador', `Ignore endereços de ${bad.map((i) => i.name).join(', ')}. Use o que começa com 192.168 ou 10.`));
+  if (d.port !== 80) out.push(row('warn', `O Atlas está usando a porta ${d.port}`, 'A porta 80 estava ocupada. Os endereços e o QR Code já incluem a porta; se os alunos digitarem à mão, precisam escrever o endereço completo com “:' + d.port + '”.'));
+  if (d.exportDir) out.push(row('ok', 'Cópia automática ao encerrar a prova', `Planilha e backup são salvos em ${d.exportDir}. Se essa pasta sincroniza com a nuvem, a cópia já fica fora do computador.`));
   out.push(d.examOpen ? row('ok', 'Há uma prova aberta') : row('warn', 'Nenhuma prova está aberta', 'Os alunos verão “Aguarde”. Abra a prova na aba Prova.'));
   out.push(d.students ? row('ok', plural(d.students, 'aluno na lista', 'alunos na lista')) : row('warn', 'A lista de alunos está vazia', 'Importe a turma na aba Turma (ou crie alunos de teste acima).'));
   const first = reachable[0]?.url || d.urls[0]?.url;

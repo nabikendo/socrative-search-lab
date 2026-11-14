@@ -46,3 +46,9 @@ Revisão completa do código, com os problemas reproduzidos no servidor antigo a
 
 Visual: paleta neutra e cantos menores no estilo dos apps do macOS (azul do sistema, bordas finas, controles compactos, fonte do sistema), claro e escuro.
 
+## Rede ruim e Chromebooks (1.2.0-beta.7)
+
+Novo: aviso de saída da página (com contagem e tempo, sem bloquear o aluno), página `/teste`, contador de tempo pelo relógio do servidor, bloqueio de suspensão com prova aberta, liberação do Firewall pelo menu, cópia automática ao encerrar e impressão da prova/gabarito.
+
+Limites: em Chromebook não é possível impedir que o aluno saia da página, só registrar. O firewall e o bloqueio de suspensão só podem ser verificados no Windows real.
+

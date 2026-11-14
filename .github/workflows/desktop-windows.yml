@@ -109,5 +109,5 @@ jobs:
           }
           $version = $Matches[1]
           $tag = "v$version"
-          gh release create $tag $installer.FullName "$($installer.FullName).blockmap" "release-desktop/beta.yml" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "Atlas $version para Windows" --notes "Perfis locais com PIN, turmas salvas, endereço IPv4, ensaio e versões de prova, OCR com Tesseract instalado, devolutiva programada, recuperação por habilidade e exportação configurável."
+          gh release create $tag $installer.FullName "$($installer.FullName).blockmap" "release-desktop/beta.yml" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "Atlas $version para Windows" --notes "Aviso quando o aluno sai da página, teste de conexão dos alunos, tempo restante, Firewall e suspensão do Windows, cópia automática ao encerrar, impressão da prova e novo visual."
 

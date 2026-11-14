@@ -34,8 +34,10 @@ async function refresh(force) {
   } catch { /* o aviso de login é tratado globalmente */ }
 }
 
+const awayTime = (seconds) => (seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`);
 const badge = (r) => r.status === 'submitted' ? h('span', { class: 'badge ok' }, 'Enviada')
   : r.status === 'paused' ? h('span',{class:'badge warn'},'Pausada pelo professor')
+  : r.away?.now ? h('span', { class: 'badge warn' }, 'Fora da prova')
   : r.online ? h('span', { class: 'badge' }, h('span', { class: 'dot', style: 'color:var(--ok)' }), 'Online')
   : h('span', { class: 'badge warn' }, 'Desconectado');
 
@@ -47,7 +49,13 @@ function render() {
       state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:280px', onchange: (e) => { state.examId = e.target.value; state.open.clear(); state.sig = ''; refresh(true); } },
         state.exams.map((e) => h('option', { value: e.id, selected: e.id === state.examId }, e.title)))),
     !d ? h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')
-      : [summary(d), pendingStudents(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? skillInsights(d) : null, d.results.length ? insights(d) : null, d.results.length ? missingKeys(d) : null, d.results.length ? batchCorrection(d) : null, d.results.length ? comparePanel() : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
+      : [summary(d), awayNotice(d), pendingStudents(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? skillInsights(d) : null, d.results.length ? insights(d) : null, d.results.length ? missingKeys(d) : null, d.results.length ? batchCorrection(d) : null, d.results.length ? comparePanel() : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
+}
+
+function awayNotice(d) {
+  const outside = d.results.filter((r) => r.away?.now);
+  if (!outside.length) return null;
+  return h('div', { class: 'notice warn', role: 'status' }, `Fora da página da prova agora: ${outside.map((r) => `${r.name} (nº ${r.number})`).join(', ')}.`);
 }
 
 function summary(d) {
@@ -146,7 +154,7 @@ function row(r, exam) {
   const open = state.open.has(r.sessionId);
   const head = h('button', { class: 'list-row clickable', 'aria-expanded': String(open), onclick: () => { open ? state.open.delete(r.sessionId) : state.open.add(r.sessionId); render(); } },
     h('span', { class: 'num' }, r.number),
-    h('span', { class: 'grow' }, h('div', {}, r.name), h('div', { class: 'caption' }, `${r.total ? `${r.answered}/${r.total} respondidas` : 'prova em PDF'}${r.className ? ' · ' + r.className : ''}`)),
+    h('span', { class: 'grow' }, h('div', {}, r.name), h('div', { class: 'caption' }, `${r.total ? `${r.answered}/${r.total} respondidas` : 'prova em PDF'}${r.className ? ' · ' + r.className : ''}${r.away?.count ? ` · saiu da página ${r.away.count}× (${awayTime(r.away.seconds)})` : ''}`)),
     badge(r),
     h('span', { class: 'score', style: 'min-width:96px;text-align:right;white-space:nowrap' }, r.max ? `${formatScore(r.score)}/${formatScore(r.max)}` : 'PDF', r.pending ? h('div', { class: 'caption' }, `${r.pending} a corrigir`) : null));
   if (!open) return h('div', {}, head);

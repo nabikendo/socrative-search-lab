@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, shell, Menu, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, shell, Menu, nativeTheme, powerSaveBlocker } from 'electron';
+import { execFile } from 'node:child_process';
 import updater from 'electron-updater';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,6 +72,27 @@ autoUpdater.on('update-downloaded', async (info) => {
   if (response === 0) autoUpdater.quitAndInstall();
 });
 
+// O Windows pergunta sobre o Firewall só na primeira vez; se o professor cancelou, os alunos não conectam.
+function addFirewallRule() {
+  return new Promise((resolve, reject) => {
+    const exe = process.execPath.replace(/'/g, "''");
+    const script = `$ErrorActionPreference='Stop'; $e='${exe}'; Remove-NetFirewallRule -DisplayName 'Atlas' -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Atlas' -Direction Inbound -Action Allow -Program $e -Profile Any | Out-Null`;
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    const outer = `$p = Start-Process -FilePath powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','${encoded}'; exit $p.ExitCode`;
+    execFile('powershell.exe', ['-NoProfile', '-Command', outer], { windowsHide: true }, (error) => (error ? reject(error) : resolve()));
+  });
+}
+
+async function allowFirewall() {
+  if (process.platform !== 'win32') return;
+  try {
+    await addFirewallRule();
+    await dialog.showMessageBox(window, { type: 'info', title: 'Firewall liberado', message: 'O Windows agora permite que os alunos conectem ao Atlas.' });
+  } catch {
+    await dialog.showMessageBox(window, { type: 'warning', title: 'Não foi possível liberar', message: 'A liberação precisa da autorização do administrador do Windows.', detail: 'Tente de novo e escolha “Sim” quando o Windows perguntar. Em computador da escola, peça ajuda à TI.' });
+  }
+}
+
 function getPin(dataDir) {
   const pinFile = path.join(dataDir, 'pin.txt');
   const existing = fs.existsSync(pinFile) ? fs.readFileSync(pinFile, 'utf8').trim() : '';
@@ -104,7 +126,8 @@ async function start() {
     app.relaunch({ args: [...args, `--atlas-profile=${id}`] });
     app.quit();
   }
-  atlas = createApp({ dataDir, pin, desktopProfiles: {
+  const exportDir = path.join(app.getPath('documents'), 'Atlas', 'Copias');
+  atlas = createApp({ dataDir, pin, exportDir, desktopProfiles: {
     list: () => ({ active: activeProfile, profiles: [{ id: MAIN_PROFILE, name: 'Principal' }, ...profiles] }),
     create(name, profilePin) {
       if (profiles.some((entry) => entry.name.toLowerCase() === name.toLowerCase()) || name.toLowerCase() === 'principal') return false;
@@ -159,6 +182,8 @@ async function start() {
         label: name, enabled: id !== activeProfile, click: () => switchProfile(id),
       })) },
       { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
+      ...(process.platform === 'win32' ? [{ label: 'Liberar no Firewall do Windows', click: () => allowFirewall() }] : []),
+      { label: 'Abrir pasta das cópias de provas', click: () => { fs.mkdirSync(exportDir, { recursive: true }); shell.openPath(exportDir); } },
       { label: 'Buscar atualizações', accelerator: 'Alt+U', click: () => checkUpdates() },
       { label: 'Canal de atualizações', submenu: [
         {label:'Pré-lançamentos beta',type:'radio',checked:updateChannel==='beta',click:()=>{useUpdateChannel('beta');dialog.showMessageBox(window,{type:'info',title:'Canal beta selecionado',message:'O Atlas poderá oferecer versões de teste. Você pode voltar ao canal estável neste menu.'});}},
@@ -176,6 +201,26 @@ async function start() {
     if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault();
   });
   await window.loadURL('http://127.0.0.1:' + port + '/professor');
+  // durante uma prova aberta o computador não pode entrar em suspensão (os alunos perderiam a conexão)
+  let blocker = null;
+  const keepAwake = setInterval(() => {
+    try {
+      const examOpen = !!atlas.store.getOpenExam();
+      if (examOpen && blocker === null) blocker = powerSaveBlocker.start('prevent-app-suspension');
+      else if (!examOpen && blocker !== null) { powerSaveBlocker.stop(blocker); blocker = null; }
+    } catch { /* o servidor está encerrando */ }
+  }, 10_000);
+  keepAwake.unref?.();
+  const firewallMarker = path.join(app.getPath('userData'), 'firewall-asked.txt');
+  if (process.platform === 'win32' && app.isPackaged && !fs.existsSync(firewallMarker)) {
+    fs.writeFileSync(firewallMarker, new Date().toISOString() + '\n');
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'question', title: 'Conexão dos alunos', buttons: ['Liberar agora', 'Depois'], defaultId: 0, cancelId: 1,
+      message: 'Permitir que os alunos conectem ao Atlas?',
+      detail: 'O Firewall do Windows costuma bloquear celulares e Chromebooks da sala. A liberação pede a autorização do administrador. Você pode refazer depois em Atlas › Liberar no Firewall do Windows.',
+    });
+    if (response === 0) await allowFirewall();
+  }
   if (app.isPackaged) setTimeout(() => checkUpdates(false), 15_000).unref?.();
 }
 

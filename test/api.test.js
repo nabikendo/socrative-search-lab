@@ -411,3 +411,61 @@ test('política de backup é configurável e anonimização só atinge históric
   const result=(await call(`/api/exams/${exam.id}/results`,{cookie:admin})).data.results[0];assert.equal(result.name,'Estudante anonimizado');assert.match(result.number,/^AN-/);
 });
 
+
+test('saída da página: professor é avisado, contagem sem duplicar, tempo restante e cópia automática ao encerrar', async () => {
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-away-'));
+  const copies = path.join(dir2, 'copias');
+  const app2 = createApp({ dataDir: dir2, pin: '654321', exportDir: copies });
+  await new Promise((r) => app2.server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${app2.server.address().port}`;
+  const send = async (route, { method = 'GET', body, cookie } = {}) => {
+    const res = await fetch(url + route, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const type = res.headers.get('content-type') || '';
+    return { status: res.status, data: type.includes('json') ? await res.json() : await res.text() };
+  };
+  try {
+    const login = await fetch(url + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: '654321' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    await send('/api/roster', { method: 'POST', cookie, body: { roster: [{ number: '7', name: 'Aluna Sete' }] } });
+    const exam = (await send('/api/exams', { method: 'POST', cookie, body: { title: 'Prova de química: ligações', questions: [{ type: 'choice', text: 'Q?', options: ['A', 'B'], correct: 'B', weight: 1 }] } })).data.exam;
+    const code = (await send(`/api/exams/${exam.id}/open`, { method: 'POST', cookie })).data.code;
+    const started = (await send('/api/session/start', { method: 'POST', body: { code, number: '7' } })).data;
+    const credentials = { sessionId: started.session.id, token: started.session.token };
+
+    // o servidor informa a hora dele (e o fim, quando há) para o contador do aluno
+    const beat = (await send('/api/session/heartbeat', { method: 'POST', body: credentials })).data;
+    assert.equal(typeof beat.serverNow, 'number');
+    assert.equal(beat.endsAt, null);
+
+    // credencial inválida não registra nada
+    assert.equal((await send('/api/session/away', { method: 'POST', body: { ...credentials, token: 'x', state: 'away' } })).status, 401);
+    assert.equal((await send('/api/session/away', { method: 'POST', body: { ...credentials, state: 'qualquer' } })).status, 400);
+
+    await send('/api/session/away', { method: 'POST', body: { ...credentials, state: 'away' } });
+    let result = (await send(`/api/exams/${exam.id}/results`, { cookie })).data.results[0];
+    assert.equal(result.away.now, true);
+
+    const back = { ...credentials, state: 'back', id: 'evento-1', seconds: 42 };
+    await send('/api/session/away', { method: 'POST', body: back });
+    await send('/api/session/away', { method: 'POST', body: back }); // reenvio por falha de rede: não conta duas vezes
+    result = (await send(`/api/exams/${exam.id}/results`, { cookie })).data.results[0];
+    assert.deepEqual(result.away, { now: false, count: 1, seconds: 42 });
+
+    const csv = (await send(`/api/exams/${exam.id}/export.csv`, { cookie })).data;
+    assert.match(csv.split('\r\n')[0], /saidas_da_pagina;segundos_fora/);
+    assert.match(csv.split('\r\n')[1], /;1;42;/);
+    assert.ok(!(await send('/api/audit?limit=50', { cookie })).data.events.some((event) => event.event === 'student_away'), 'saídas não poluem o histórico do professor');
+
+    // ao encerrar, planilha e backup são copiados para a pasta configurada
+    assert.equal((await send(`/api/exams/${exam.id}/close`, { method: 'POST', cookie })).status, 200);
+    const saved = fs.readdirSync(copies);
+    assert.ok(saved.some((file) => file.startsWith('Prova-de-quimica-ligacoes-') && file.endsWith('.csv')));
+    assert.ok(saved.some((file) => file.endsWith('.atlas')));
+    const backup = JSON.parse(fs.readFileSync(path.join(copies, saved.find((file) => file.endsWith('.atlas'))), 'utf8'));
+    assert.equal(backup.format, 'atlas-backup');
+    assert.ok(backup.db.length > 100);
+  } finally {
+    await app2.close();
+    fs.rmSync(dir2, { recursive: true, force: true });
+  }
+});

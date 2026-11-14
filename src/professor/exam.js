@@ -2,6 +2,7 @@ import qrcode from 'qrcode-generator';
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural } from '../lib/dom.js';
 import { questionId, parseQuestionsText, parsePdfQuestionText } from '../../shared/exam.js';
+import { printExam } from './print.js';
 import { SAEB_LEVELS, SAEB_SKILLS, skillLabel } from '../../shared/skills.js';
 
 let root;
@@ -175,6 +176,8 @@ function render() {
           await select(id);
           toast(`Prova aberta · código ${code}`);
         }) }, 'Abrir para os alunos'),
+      m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions)) }, 'Imprimir prova'),
+      m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions, { key: true })) }, 'Imprimir gabarito'),
       m.id && h('button', { class: 'btn quiet', onclick: guard(async () => { state.model = { ...blank(), title: `${m.title} (cópia)`, questions: payloadQuestions(m).map((q) => ({ ...q, correctIndex: typeof q.correct==='string'?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((value)=>q.options.indexOf(value)).filter((i)=>i>=0):[],numericAnswer:q.type==='numeric'?q.correct:'' })) }; state.dirty = true; }) }, 'Duplicar'),
       m.id && !isOpen && !isPaused && h('button', { class: 'btn danger', onclick: guard(async () => { if (!confirm('Excluir esta prova?')) return; await api(`/api/exams/${m.id}`, { method: 'DELETE' }); await loadList(); await select(state.exams[0]?.id); }) }, 'Excluir'))));
 }

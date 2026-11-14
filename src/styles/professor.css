@@ -41,3 +41,16 @@
 .faq:first-of-type { border-top: 0; }
 .faq summary { cursor: pointer; font-weight: 600; }
 .faq p { margin: 8px 0 0; }
+
+/* impressão da prova em papel (plano B sem rede) */
+#print-sheet { display: none; }
+@media print {
+  body.printing > :not(#print-sheet) { display: none !important; }
+  body.printing #print-sheet { display: block; color: #000; background: #fff; font: 12pt/1.45 var(--font); }
+  #print-sheet h1 { font-size: 16pt; margin: 0 0 8pt; }
+  .print-id { margin-bottom: 14pt; }
+  .print-q { break-inside: avoid; margin-bottom: 12pt; }
+  .print-opts { list-style: none; margin: 4pt 0 0; padding: 0 0 0 12pt; }
+  .print-line { border-bottom: 1px solid #000; height: 20pt; }
+  #print-sheet img { max-width: 100%; max-height: 160pt; }
+}
