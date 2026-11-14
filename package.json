@@ -12,16 +12,50 @@
     "build": "vite build",
     "start": "npm run build && node --disable-warning=ExperimentalWarning server.mjs",
     "serve": "node --disable-warning=ExperimentalWarning server.mjs",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "desktop:dev": "electron .",
+    "desktop:package": "npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
     "vite": "^6.1.0",
     "pdfjs-dist": "5.4.149",
-    "qrcode-generator": "^2.0.4"
+    "qrcode-generator": "^2.0.4",
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
   },
   "dependencies": {
     "mammoth": "^1.9.1",
     "read-excel-file": "^9.3.14",
     "sanitize-html": "^2.17.0"
+  },
+  "main": "desktop/main.mjs",
+  "build": {
+    "appId": "br.com.atlas.provas",
+    "productName": "Atlas",
+    "directories": {
+      "output": "release-desktop"
+    },
+    "files": [
+      "desktop/**/*",
+      "server.mjs",
+      "lib/**/*",
+      "shared/**/*",
+      "dist/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Atlas-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
