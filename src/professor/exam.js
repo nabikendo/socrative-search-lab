@@ -18,13 +18,13 @@ export async function activate() {
 export function deactivate() { clearInterval(timer); }
 
 const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, document: null, locked: false, shuffle: false,
-  questions: [newQuestion('choice')] });
+  pdfOnly: true, questions: [newQuestion('choice')] });
 function newQuestion(type) {
   return { id: questionId(), type, text: '', options: type === 'choice' ? ['', ''] : [], correctIndex: null, weight: 1 };
 }
-const fromServer = (exam, locked) => ({ ...exam, locked, questions: exam.questions.map((q) => ({ ...q, correctIndex: q.correct ? q.options.indexOf(q.correct) : null })) });
+const fromServer = (exam, locked) => ({ ...exam, locked, pdfOnly: !exam.questions.length, questions: exam.questions.map((q) => ({ ...q, correctIndex: q.correct ? q.options.indexOf(q.correct) : null })) });
 function payload() {
-  return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, questions: state.model.questions.map((q) => {
+  return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, questions: state.model.pdfOnly ? [] : state.model.questions.map((q) => {
     const options = q.options.map((o) => o.trim());
     const correct = q.type === 'choice' && q.correctIndex !== null ? options[q.correctIndex] : undefined;
     return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct ? { correct } : {}), weight: Number(q.weight) || 1 };
@@ -85,12 +85,13 @@ function render() {
         h('input', { type: 'checkbox', checked: !!m.shuffle, disabled: m.locked, onchange: (e) => { m.shuffle = e.target.checked; touch(); } }),
         h('span', {}, h('strong', {}, 'Embaralhar para cada aluno'), h('span', { class: 'caption', style: 'display:block' }, 'Cada aluno vê as questões e as alternativas em ordem diferente. Evite alternativas como “todas as anteriores”.')))),
 
-    ...m.questions.map((q, i) => questionCard(q, i)),
+    ...(m.pdfOnly ? [] : m.questions.map((q, i) => questionCard(q, i))),
 
     !m.locked && h('div', { class: 'row' },
       h('button', { class: 'btn secondary', onclick: () => { m.questions.push(newQuestion('choice')); touch(); render(); } }, 'Adicionar questão'),
       h('button', { class: 'btn quiet', onclick: () => { m.questions.push(newQuestion('text')); touch(); render(); } }, 'Questão aberta')),
-    !m.locked && quickText(m),
+    !m.locked && pdfOnlyOption(m),
+    !m.locked && !m.pdfOnly && quickText(m),
     documentCard(m),
 
     state.error && h('p', { class: 'error', role: 'alert' }, state.error),
@@ -147,17 +148,46 @@ function quickText(m) {
       h('div', {}, h('button', { class: 'btn secondary', onclick: () => { const qs = parseQuestionsText(area.value).map((q) => ({ ...q, correctIndex: q.correct ? q.options.indexOf(q.correct) : null })); if (!qs.length) return; if (m.questions.length === 1 && !m.questions[0].text) m.questions = []; m.questions.push(...qs); touch(); render(); } }, 'Adicionar ao editor'))));
 }
 
+function pdfOnlyOption(m) {
+  return h('label', { class: 'option card', style: 'border-radius:14px' },
+    h('input', { type: 'checkbox', checked: !!m.pdfOnly, onchange: (event) => {
+      m.pdfOnly = event.target.checked;
+      if (m.pdfOnly) m.questions = [];
+      else if (!m.questions.length) m.questions = [newQuestion('choice')];
+      touch(); render();
+    } }),
+    h('span', {}, h('strong', {}, 'As questões estão em um PDF'),
+      h('span', { class: 'caption', style: 'display:block' }, 'Os alunos abrem o arquivo e entregam a prova sem preencher questões nesta tela.')));
+}
+
 function documentCard(m) {
   const picker = h('input', { type: 'file', id: 'doc-file', accept: '.pdf,.docx', onchange: guard(async (ev) => {
     const file = ev.target.files[0]; ev.target.value = '';
     if (!file) return;
-    if (!m.id) await save();
+    const wantsPdfOnly = state.model.pdfOnly && file.name.toLowerCase().endsWith('.pdf');
+    if (!wantsPdfOnly && state.model.pdfOnly) {
+      state.model.pdfOnly = false;
+      if (!state.model.questions.length) state.model.questions = [newQuestion('choice')];
+    }
+    if (!m.id) {
+      if (wantsPdfOnly) {
+        m.pdfOnly = false;
+        m.questions = [{ ...newQuestion('text'), text: 'Responda usando o documento da prova.' }];
+      }
+      await save();
+      state.model.pdfOnly = wantsPdfOnly;
+    }
     const { document } = await api(`/api/exams/${state.model.id}/document?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file });
-    state.model.document = document; toast('Documento anexado');
+    state.model.document = document;
+    if (wantsPdfOnly) {
+      state.model.questions = [];
+      await save();
+      toast('Prova em PDF importada');
+    } else { render(); toast('Documento anexado'); }
   }) });
   return h('div', { class: 'card stack-s' },
     h('h2', { class: 'headline' }, 'Documento da prova'),
-    h('p', { class: 'sub' }, m.document ? `${m.document.name} · ${(m.document.size / 1048576).toFixed(1)} MB` : 'Opcional: anexe um PDF ou DOCX com textos e figuras. O aluno vê o arquivo junto das questões.'),
+      h('p', { class: 'sub' }, m.document ? `${m.document.name} · ${(m.document.size / 1048576).toFixed(1)} MB` : m.pdfOnly ? 'Importe o PDF que contém as questões. A lista de alunos abrirá o arquivo e poderá entregar a prova sem digitar as questões no Atlas.' : 'Opcional: anexe um PDF ou DOCX com textos e figuras. O aluno vê o arquivo junto das questões.'),
     h('div', { class: 'row' }, picker, h('label', { class: 'btn secondary', for: 'doc-file' }, m.document ? 'Trocar arquivo' : 'Anexar PDF ou DOCX'),
       m.document && h('button', { class: 'btn danger', onclick: guard(async () => { await api(`/api/exams/${m.id}/document`, { method: 'DELETE' }); m.document = null; }) }, 'Remover')));
 }

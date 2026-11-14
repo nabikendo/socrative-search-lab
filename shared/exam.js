@@ -13,7 +13,7 @@ export function questionId() {
 const text = (value, max) => String(value ?? '').trim().slice(0, max);
 
 export function normalizeQuestions(input) {
-  if (!Array.isArray(input) || input.length === 0) throw new ExamError('questions_required', 'Adicione ao menos uma questão.');
+  if (!Array.isArray(input)) throw new ExamError('questions_required', 'Adicione questões ou anexe um PDF da prova.');
   if (input.length > MAX_QUESTIONS) throw new ExamError('too_many_questions', `No máximo ${MAX_QUESTIONS} questões.`);
   const seen = new Set();
   return input.map((raw, index) => {

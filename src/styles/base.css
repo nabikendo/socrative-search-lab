@@ -1,6 +1,6 @@
 /* Atlas — sistema de design minimalista. Sem fontes externas: funciona offline. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #f5f5f7;
   --surface: #ffffff;
   --text: #1d1d1f;
@@ -16,8 +16,24 @@
   --radius: 18px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #6e6e73;
+    --line: rgba(255, 255, 255, 0.14);
+    --fill: rgba(120, 120, 128, 0.28);
+    --accent: #2997ff;
+    --accent-press: #5eb0ff;
+    --ok: #30d158;
+    --warn: #ff9f0a;
+    --danger: #ff453a;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
+    color-scheme: dark;
     --bg: #000000;
     --surface: #1c1c1e;
     --text: #f5f5f7;
@@ -124,7 +140,7 @@ input[type="file"] { display: none; }
   padding: 6px 16px; border-radius: 8px; cursor: pointer; transition: background 0.15s;
 }
 .segmented button[aria-pressed="true"], .segmented button[aria-selected="true"] { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14); }
-@media (prefers-color-scheme: dark) { .segmented button[aria-pressed="true"], .segmented button[aria-selected="true"] { background: #636366; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .segmented button[aria-pressed="true"], :root:not([data-theme="light"]) .segmented button[aria-selected="true"] { background: #636366; } }
 
 /* ---------- lista agrupada (estilo Ajustes) */
 .list { background: var(--surface); border-radius: var(--radius); overflow: hidden; }

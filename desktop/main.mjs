@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, shell, Menu } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -7,6 +8,39 @@ import { createApp } from '../server.mjs';
 
 let atlas;
 let window;
+
+async function checkUpdates() {
+  if (!app.isPackaged) {
+    await dialog.showMessageBox(window, { type: 'info', title: 'Atualizações', message: 'A busca de atualizações funciona na versão instalada do Atlas.' });
+    return;
+  }
+  try { await autoUpdater.checkForUpdates(); }
+  catch (error) {
+    await dialog.showMessageBox(window, { type: 'warning', title: 'Não foi possível buscar atualizações', message: 'Confira sua conexão com a Internet e tente novamente.', detail: error.message });
+  }
+}
+
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.allowPrerelease = true;
+autoUpdater.channel = 'beta';
+autoUpdater.on('update-available', async (info) => {
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'info', title: 'Atualização do Atlas disponível',
+    message: `A versão ${info.version} está disponível. Deseja baixar agora?`,
+    buttons: ['Baixar atualização', 'Depois'], defaultId: 0, cancelId: 1,
+  });
+  if (response === 0) autoUpdater.downloadUpdate().catch((error) => dialog.showErrorBox('Falha na atualização', error.message));
+});
+autoUpdater.on('update-not-available', () => dialog.showMessageBox(window, { type: 'info', title: 'Atlas atualizado', message: 'Você já está usando a versão mais recente.' }));
+autoUpdater.on('update-downloaded', async (info) => {
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'info', title: 'Atualização pronta',
+    message: `A versão ${info.version} foi baixada.`, detail: 'Reinicie o Atlas para concluir a instalação.',
+    buttons: ['Reiniciar agora', 'Depois'], defaultId: 0, cancelId: 1,
+  });
+  if (response === 0) autoUpdater.quitAndInstall();
+});
 
 function getPin(dataDir) {
   const pinFile = path.join(dataDir, 'pin.txt');
@@ -43,6 +77,7 @@ async function start() {
     { label: 'Atlas', submenu: [
       { label: 'Mostrar PIN do professor', click: () => dialog.showMessageBox(window, { type: 'info', title: 'PIN do professor', message: 'Seu PIN: ' + pin }) },
       { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
+      { label: 'Buscar atualizações', accelerator: 'Alt+U', click: () => checkUpdates() },
       { role: 'quit', label: 'Sair' },
     ] },
   ]));
@@ -55,7 +90,8 @@ async function start() {
     if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault();
   });
   await window.loadURL('http://127.0.0.1:' + port + '/professor');
-  dialog.showMessageBox(window, { type: 'info', title: 'Acesso do professor', message: 'PIN do professor: ' + pin, detail: 'Para consultar novamente, pressione Alt e abra Atlas → Mostrar PIN do professor.' });
+  dialog.showMessageBox(window, { type: 'info', title: 'Acesso do professor', message: 'PIN do professor: ' + pin, detail: 'Para consultar novamente, abra Atlas → Mostrar PIN do professor. Para buscar atualizações, pressione Alt+U.' });
+  if (app.isPackaged) setTimeout(() => checkUpdates(), 15_000).unref?.();
 }
 
 app.on('second-instance', () => {

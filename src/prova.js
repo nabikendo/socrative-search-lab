@@ -1,6 +1,9 @@
 import { api, ApiError } from './lib/api.js';
 import { $, h, clear, plural } from './lib/dom.js';
 import { orderForStudent } from '../shared/shuffle.js';
+import { initializeThemeButton } from './lib/theme.js';
+
+initializeThemeButton();
 
 const SESSION_KEY = 'atlas.session';
 const queueKey = (sessionId) => `atlas.queue.${sessionId}`;
@@ -104,8 +107,19 @@ function renderExam() {
 }
 
 function renderQuestion() {
-  const q = state.questions[state.index];
   const total = state.questions.length;
+  if (!total) {
+    $('#hud-label').textContent = 'Prova em PDF';
+    $('#pct').textContent = 'PDF';
+    clear($('#q-card'),
+      h('div', { class: 'stack-s' },
+        h('div', { class: 'eyebrow' }, 'Questões no documento'),
+        h('h1', { class: 'headline' }, state.exam.document?.name || 'Prova em PDF'),
+        h('p', { class: 'sub' }, 'Abra o PDF para consultar as questões. Depois, responda no papel conforme a orientação do professor e entregue a prova pelo botão acima.')),
+      h('button', { class: 'btn secondary', type: 'button', disabled: !state.exam.document, onclick: () => $('#doc-open').click() }, 'Abrir PDF da prova'));
+    return;
+  }
+  const q = state.questions[state.index];
   const last = state.index === total - 1;
   let control;
   if (q.type === 'choice') {
@@ -195,6 +209,7 @@ document.addEventListener('keydown', (event) => {
   const typing = ['TEXTAREA', 'INPUT'].includes(event.target.tagName) && event.target.type !== 'radio';
   if (typing) return;
   const q = state.questions[state.index];
+  if (!q) return;
   if (event.key === 'ArrowRight') go(state.index + 1);
   else if (event.key === 'ArrowLeft') go(state.index - 1);
   else if (/^[1-9]$/.test(event.key) && q.type === 'choice' && !state.closed && q.options[Number(event.key) - 1]) { setAnswer(q.id, q.options[Number(event.key) - 1]); renderQuestion(); }

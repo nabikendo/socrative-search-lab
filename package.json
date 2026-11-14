@@ -1,6 +1,6 @@
 {
   "name": "atlas-provas",
-  "version": "1.1.0",
+  "version": "1.2.0-beta.1",
   "private": true,
   "type": "module",
   "description": "Atlas: provas em rede local, sem Internet durante a aula.",
@@ -17,11 +17,12 @@
     "desktop:package": "npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
-    "vite": "^6.1.0",
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0",
+    "electron-updater": "^6.8.11",
     "pdfjs-dist": "5.4.149",
     "qrcode-generator": "^2.0.4",
-    "electron": "^38.0.0",
-    "electron-builder": "^26.0.0"
+    "vite": "^6.1.0"
   },
   "dependencies": {
     "mammoth": "^1.9.1",
@@ -29,6 +30,10 @@
     "sanitize-html": "^2.17.0"
   },
   "main": "desktop/main.mjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nabikendo/socrative-search-lab.git"
+  },
   "build": {
     "appId": "br.com.atlas.provas",
     "productName": "Atlas",
@@ -44,6 +49,14 @@
       "package.json",
       "node_modules/**/*"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "nabikendo",
+      "repo": "socrative-search-lab",
+      "channel": "beta",
+      "releaseType": "prerelease"
+    },
+    "generateUpdatesFilesForAllChannels": true,
     "asar": true,
     "win": {
       "target": [

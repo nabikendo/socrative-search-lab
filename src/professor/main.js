@@ -1,11 +1,13 @@
 import { api } from '../lib/api.js';
 import { $, $$ } from '../lib/dom.js';
+import { initializeThemeButton } from '../lib/theme.js';
 import * as roster from './roster.js';
 import * as exam from './exam.js';
 import * as results from './results.js';
 import * as help from './help.js';
 
 const tabs = { turma: roster, prova: exam, resultados: results, ajuda: help };
+initializeThemeButton();
 let mounted = false;
 let active = null;
 
