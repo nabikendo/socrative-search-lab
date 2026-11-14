@@ -29,6 +29,26 @@ test('parser de lista: CSV com turma não vaza a turma para o nome', () => {
   assert.deepEqual(rows.map((r) => [r.number, r.name, r.className]), [['3', 'Aluno Um', '13.01'], ['5', 'SILVA, JOÃO', '13.01'], ['7', 'CARLOS EDUARDO', '']]);
 });
 
+test('Diário de Classe SEDUC-TO: lê turma do cabeçalho e alunos da tabela em mais de uma página', () => {
+  const pdfText = [
+    'GOVERNO DO ESTADO DO TOCANTINS',
+    'DIÁRIO DE CLASSE',
+    'Ano/Série: 1ª SÉRIE - ENSINO MÉDIO | Turno: Matutino/Manhã | Turma: 13.01/EM.MAT-ANL',
+    'Nº Aluno Ter 3 Seg 9 Faltas',
+    '3 ALUNO EXEMPLO DA SILVA',
+    '5 OUTRA ALUNA TESTE F 2',
+    'DIÁRIO DE CLASSE',
+    'Ano/Série: 1ª SÉRIE - ENSINO MÉDIO | Turno: Matutino/Manhã | Turma: 13.01/EM.MAT-ANL',
+    'Nº Aluno Ter 10 Seg 16 Faltas',
+    '7 PARTICIPANTE DE EXEMPLO',
+  ].join('\n');
+  assert.deepEqual(parseRosterText(pdfText), [
+    { number: '3', name: 'ALUNO EXEMPLO DA SILVA', className: '13.01/EM.MAT-ANL' },
+    { number: '5', name: 'OUTRA ALUNA TESTE', className: '13.01/EM.MAT-ANL' },
+    { number: '7', name: 'PARTICIPANTE DE EXEMPLO', className: '13.01/EM.MAT-ANL' },
+  ]);
+});
+
 test('painel exige PIN e limita tentativas', async () => {
   assert.equal((await call('/api/roster')).status, 401);
   assert.equal((await call('/api/auth/login', { method: 'POST', body: { pin: '000000' } })).status, 403);
@@ -108,6 +128,29 @@ test('upload valida o conteúdo real do arquivo', async () => {
   assert.equal(pdf.status, 200);
 });
 
+test('prova somente em PDF: não aceita prova vazia e permite que o aluno abra e entregue o documento', async () => {
+  const noContent = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'Sem conteúdo', questions: [] } });
+  assert.equal(noContent.status, 400);
+  assert.equal(noContent.data.error, 'questions_or_document_required');
+
+  const created = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'Prova no PDF', questions: [{ type: 'text', text: 'Importação em andamento' }] } });
+  assert.equal(created.status, 200);
+  const id = created.data.exam.id;
+  const uploaded = await call(`/api/exams/${id}/document?name=avaliacao.pdf`, { method: 'POST', cookie: admin, raw: Buffer.from('%PDF-1.4\n%%EOF'), headers: { 'content-type': 'application/octet-stream' } });
+  assert.equal(uploaded.status, 200);
+  const pdfOnly = await call('/api/exams', { method: 'POST', cookie: admin, body: { id, title: 'Prova no PDF', questions: [] } });
+  assert.equal(pdfOnly.status, 200);
+  assert.deepEqual(pdfOnly.data.exam.questions, []);
+
+  const { code } = (await call(`/api/exams/${id}/open`, { method: 'POST', cookie: admin })).data;
+  const started = await call('/api/session/start', { method: 'POST', body: { code, number: '5' } });
+  assert.equal(started.status, 200);
+  assert.deepEqual(started.data.exam.questions, []);
+  const doc = await fetch(`${base}/api/document/${uploaded.data.document.id}`);
+  assert.equal(doc.status, 200);
+  assert.equal((await call('/api/session/submit', { method: 'POST', body: { sessionId: started.data.session.id, token: started.data.session.token } })).status, 200);
+});
+
 test('regras de nota', () => {
   const exam = { questions: normalizeQuestions([{ type: 'choice', text: 'a', options: ['x', 'y'], correct: 'x', weight: 2 }, { type: 'text', text: 'b' }]) };
   const [a, b] = exam.questions;
@@ -151,6 +194,11 @@ test('backup e restauração: devolve exatamente o estado salvo e guarda cópia 
 
   assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: 'isto não é um backup' })).status, 422);
   assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: JSON.stringify({ format: 'atlas-backup', version: 1, db: Buffer.from('x'.repeat(2000)).toString('base64') }) })).status, 422);
+  // Anexos malformados não podem apagar os documentos nem substituir o banco.
+  const malformed = JSON.parse(file);
+  malformed.documents = { 'arquivo-invalido.pdf': 'YQ==' };
+  assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: JSON.stringify(malformed) })).status, 422);
+  assert.equal((await call('/api/exams', { cookie: admin })).status, 200);
   assert.equal((await call('/api/restore', { method: 'POST', raw: file })).status, 401);
   assert.equal((await call('/api/exams', { cookie: admin })).status, 200); // continua funcionando depois das tentativas inválidas
 });

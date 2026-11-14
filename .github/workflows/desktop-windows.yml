@@ -1,0 +1,112 @@
+name: Atlas Desktop Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/atlas-desktop-hardening
+    paths:
+      - 'desktop/**'
+      - 'server.mjs'
+      - 'lib/**'
+      - 'shared/**'
+      - 'src/**'
+      - 'test/**'
+      - '*.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+      - name: Testes automatizados
+        run: npm test
+      - name: Gerar instalador
+        run: npm run desktop:package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verificar os arquivos do instalador e do atualizador
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = "release-desktop/Atlas-Setup-$version-x64.exe"
+          $required = @($installer, "$installer.blockmap", "release-desktop/beta.yml", "release-desktop/win-unpacked/resources/app-update.yml")
+          foreach ($file in $required) {
+            if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Item -LiteralPath $file).Length -eq 0) {
+              throw "Arquivo ausente ou vazio: $file"
+            }
+          }
+          $hash = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash -LiteralPath $installer -Algorithm SHA512).Hash))
+          $manifest = Get-Content -Raw -LiteralPath "release-desktop/beta.yml"
+          if (!$manifest.Contains($hash)) { throw "O manifesto beta não corresponde ao instalador." }
+      - name: Abrir o Atlas empacotado e conferir o painel
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "release-desktop/win-unpacked/Atlas.exe"
+          $app = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 30 -and !$ready; $attempt++) {
+              if ($app.HasExited) { throw "O Atlas fechou na inicialização (código $($app.ExitCode))." }
+              $sockets = Get-NetTCPConnection -OwningProcess $app.Id -State Listen -ErrorAction SilentlyContinue
+              foreach ($socket in $sockets) {
+                try {
+                  $page = Invoke-WebRequest -Uri "http://127.0.0.1:$($socket.LocalPort)/professor" -TimeoutSec 2
+                  if ($page.StatusCode -eq 200 -and $page.Content -like "*Painel do professor*") {
+                    $ready = $true
+                    break
+                  }
+                } catch {
+                  continue
+                }
+              }
+              if (!$ready) { Start-Sleep -Seconds 1 }
+            }
+            if (!$ready) { throw "O painel do professor não abriu no Atlas empacotado." }
+          } finally {
+            if (!$app.HasExited) { Stop-Process -Id $app.Id }
+          }
+      - name: Guardar arquivos de distribuição
+        uses: actions/upload-artifact@v4
+        with:
+          name: Atlas-Desktop-Windows
+          path: |
+            release-desktop/*.exe
+            release-desktop/*.exe.blockmap
+            release-desktop/beta.yml
+          if-no-files-found: error
+
+  release-windows:
+    needs: build-windows
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish atlas beta]')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Atlas-Desktop-Windows
+          path: release-desktop
+      - name: Publicar pré-lançamento
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = Get-ChildItem -LiteralPath "release-desktop" -Filter "Atlas-Setup-*-x64.exe"
+          if (@($installer).Count -ne 1 -or $installer.Name -notmatch '^Atlas-Setup-(\d+\.\d+\.\d+-beta\.\d+)-x64\.exe$') {
+            throw "O instalador deve ter uma versão beta."
+          }
+          $version = $Matches[1]
+          $tag = "v$version"
+          gh release create $tag $installer.FullName "$($installer.FullName).blockmap" "release-desktop/beta.yml" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "Atlas $version para Windows" --notes "Importação do Diário de Classe SEDUC-TO, provas em PDF, temas claro e escuro e busca de atualizações no aplicativo."

@@ -243,6 +243,10 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const input = await readJson(req);
     const title = String(input.title ?? '').trim().slice(0, 120);
     if (!title) throw new HttpError(400, 'title_required', 'Dê um título à prova.');
+    const existingDocument = input.id ? needExam(String(input.id)).document : null;
+    if (!Array.isArray(input.questions) || (!input.questions.length && !existingDocument)) {
+      throw new HttpError(400, 'questions_or_document_required', 'Adicione questões ou anexe o PDF da prova antes de salvar.');
+    }
     if (input.id) {
       const current = needExam(String(input.id));
       if (store.hasSessions(current.id)) {

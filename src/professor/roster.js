@@ -21,6 +21,11 @@ function propose(rows) {
   render();
 }
 
+function previewClass(rows) {
+  const classes = [...new Set(rows.map((row) => row.className).filter(Boolean))];
+  return classes.length ? h('p', { class: 'notice' }, `Turma identificada: ${classes.join(', ')}`) : null;
+}
+
 async function commit() {
   const { count } = await api('/api/roster', { method: 'POST', body: { roster: state.preview } });
   state.roster = (await api('/api/roster')).roster;
@@ -57,6 +62,7 @@ function render() {
     state.preview
       ? h('div', { class: 'stack-s' },
         h('h2', { class: 'headline' }, `${plural(state.preview.length, 'aluno encontrado', 'alunos encontrados')}`),
+        previewClass(state.preview),
         studentList(state.preview, 8),
         h('p', { class: 'caption' }, state.roster.length ? 'Ao importar, a lista atual será substituída.' : 'Confira se os números e nomes estão corretos.'),
         h('div', { class: 'row' },

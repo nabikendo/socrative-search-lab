@@ -38,7 +38,7 @@ function render() {
       state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:280px', onchange: (e) => { state.examId = e.target.value; state.open.clear(); state.sig = ''; refresh(true); } },
         state.exams.map((e) => h('option', { value: e.id, selected: e.id === state.examId }, e.title)))),
     !d ? h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')
-      : [summary(d), d.results.length ? stats(d) : null, d.results.length ? insights(d) : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
+      : [summary(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? insights(d) : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
 }
 
 function summary(d) {
@@ -52,9 +52,9 @@ function row(r, exam) {
   const open = state.open.has(r.sessionId);
   const head = h('button', { class: 'list-row clickable', 'aria-expanded': String(open), onclick: () => { open ? state.open.delete(r.sessionId) : state.open.add(r.sessionId); render(); } },
     h('span', { class: 'num' }, r.number),
-    h('span', { class: 'grow' }, h('div', {}, r.name), h('div', { class: 'caption' }, `${r.answered}/${r.total} respondidas${r.className ? ' · ' + r.className : ''}`)),
+    h('span', { class: 'grow' }, h('div', {}, r.name), h('div', { class: 'caption' }, `${r.total ? `${r.answered}/${r.total} respondidas` : 'prova em PDF'}${r.className ? ' · ' + r.className : ''}`)),
     badge(r),
-    h('span', { class: 'score', style: 'min-width:96px;text-align:right;white-space:nowrap' }, `${formatScore(r.score)}/${formatScore(r.max)}`, r.pending ? h('div', { class: 'caption' }, `${r.pending} a corrigir`) : null));
+    h('span', { class: 'score', style: 'min-width:96px;text-align:right;white-space:nowrap' }, r.max ? `${formatScore(r.score)}/${formatScore(r.max)}` : 'PDF', r.pending ? h('div', { class: 'caption' }, `${r.pending} a corrigir`) : null));
   if (!open) return h('div', {}, head);
   return h('div', {}, head,
     exam.questions.map((q, i) => {
@@ -78,10 +78,14 @@ async function grade(sessionId, questionId, value) {
 
 function stats(d) {
   const sent = d.results.filter((r) => r.status === 'submitted');
+  const cell = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'caption' }, label), h('div', { class: 'stat-n' }, value), sub && h('div', { class: 'caption' }, sub));
+  if (!d.exam.questions.length) return h('div', { class: 'stats' },
+    cell('Enviadas', `${sent.length}/${d.results.length}`),
+    cell('Online agora', String(d.results.filter((r) => r.online).length)),
+    cell('Formato', 'PDF', 'correção fora do Atlas'));
   const ratio = (r) => (r.max ? r.score / r.max : 0);
   const avg = sent.length ? sent.reduce((t, r) => t + ratio(r), 0) / sent.length : null;
   const max = d.results[0]?.max ?? 0;
-  const cell = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'caption' }, label), h('div', { class: 'stat-n' }, value), sub && h('div', { class: 'caption' }, sub));
   return h('div', { class: 'stats' },
     cell('Enviadas', `${sent.length}/${d.results.length}`),
     cell('Online agora', String(d.results.filter((r) => r.online).length)),
