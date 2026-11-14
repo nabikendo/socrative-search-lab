@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, shell, Menu } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { createApp } from '../server.mjs';
 
 let atlas;
@@ -30,6 +31,9 @@ async function start() {
     });
   });
   const port = atlas.server.address().port;
+  const studentUrls = () => Object.values(os.networkInterfaces()).flat()
+    .filter((net) => net?.family === 'IPv4' && !net.internal)
+    .map((net) => 'http://' + net.address + ':' + port + '/prova');
   window = new BrowserWindow({
     width: 1200, height: 800, minWidth: 820, minHeight: 600,
     title: 'Atlas — Provas',
@@ -38,6 +42,7 @@ async function start() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Atlas', submenu: [
       { label: 'Mostrar PIN do professor', click: () => dialog.showMessageBox(window, { type: 'info', title: 'PIN do professor', message: 'Seu PIN: ' + pin }) },
+      { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
       { role: 'quit', label: 'Sair' },
     ] },
   ]));
