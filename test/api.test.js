@@ -151,6 +151,11 @@ test('backup e restauração: devolve exatamente o estado salvo e guarda cópia 
 
   assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: 'isto não é um backup' })).status, 422);
   assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: JSON.stringify({ format: 'atlas-backup', version: 1, db: Buffer.from('x'.repeat(2000)).toString('base64') }) })).status, 422);
+  // Anexos malformados não podem apagar os documentos nem substituir o banco.
+  const malformed = JSON.parse(file);
+  malformed.documents = { 'arquivo-invalido.pdf': 'YQ==' };
+  assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: JSON.stringify(malformed) })).status, 422);
+  assert.equal((await call('/api/exams', { cookie: admin })).status, 200);
   assert.equal((await call('/api/restore', { method: 'POST', raw: file })).status, 401);
   assert.equal((await call('/api/exams', { cookie: admin })).status, 200); // continua funcionando depois das tentativas inválidas
 });
