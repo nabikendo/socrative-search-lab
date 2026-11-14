@@ -6,6 +6,7 @@ import { initializeThemeButton } from './lib/theme.js';
 initializeThemeButton();
 
 const SESSION_KEY = 'atlas.session';
+const rehearsalId = new URLSearchParams(location.search).get('ensaio');
 const queueKey = (sessionId) => `atlas.queue.${sessionId}`;
 
 const state = { session: null, student: null, exam: null, questions: [], index: 0, flags: new Set(), feedback: {}, scale: 1, answers: {}, pending: {}, closed: false, paused:false, flushing: false, retryTimer: null, heartbeat: null };
@@ -20,6 +21,19 @@ const writeJson = (key, value) => { try { localStorage.setItem(key, JSON.stringi
 
 // ---------- 1. entrada
 let joinTimer;
+let reviewCredentials;
+$('#return-to-join').addEventListener('click', showJoin);
+$('#review-button').addEventListener('click', async () => {
+  try {
+    const review = await api('/api/session/review', { method: 'POST', body: reviewCredentials });
+    clear($('#review-results'), h('strong', {}, `Nota: ${review.score} / ${review.max}${review.pending ? ' · correção pendente' : ''}`),
+      review.questions.map((question) => h('article', { class: 'card' },
+        h('strong', {}, question.text),
+        h('p', {}, `Sua resposta: ${question.answer || 'Sem resposta'}`),
+        h('p', {}, question.annulled ? 'Questão anulada' : `Gabarito: ${question.correct ?? 'Correção manual'}`),
+        question.explanation && h('p', {}, question.explanation))));
+  } catch (error) { clear($('#review-results'), error.message); }
+});
 async function refreshJoinStatus() {
   try {
     const { exam } = await api('/api/open-exam');
@@ -78,17 +92,22 @@ $('#confirm-yes').addEventListener('click', async () => {
 
 async function startSession(code, number, token) {
   const data = await api('/api/session/start', { method: 'POST', body: { code, number, token } });
+  beginSession(data, code, number);
+}
+
+function beginSession(data, code, number) {
   state.session = data.session;
   state.student = data.student;
   state.exam = data.exam;
   state.feedback = {};
   state.closed = false;
-  state.paused = false;
+  state.paused = !!data.paused;
   state.answers = data.answers;
   state.pending = readJson(queueKey(data.session.id)) || {};
   writeJson(SESSION_KEY, { code, number, sessionId: data.session.id, token: data.session.token });
   renderExam();
-  flush();
+  if (data.timeEnded) lockExam('Seu tempo de prova terminou. Entregue as respostas já recebidas pelo Atlas.');
+  else if (!state.paused) flush();
   clearInterval(state.heartbeat);
   state.heartbeat = setInterval(beat, 10000);
 }
@@ -110,11 +129,11 @@ function renderExam() {
   const q = state.exam;
   // cada aluno pode ter sua própria ordem de questões e alternativas (definido pelo professor)
   state.questions = q.shuffle ? orderForStudent(q.questions, state.session.id) : q.questions;
-  state.index = Math.min(state.index, state.questions.length - 1);
+  state.index = Math.max(0, Math.min(state.index, state.questions.length - 1));
   state.flags = new Set(readJson(flagsKey(state.session.id)) || []);
-  state.scale = Number(readJson(scaleKey)) || 1;
+  state.scale = Math.max(state.student.accommodation?.largeText ? 1.25 : 1, Number(readJson(scaleKey)) || 1);
   document.documentElement.style.setProperty('--fs', String(state.scale));
-  document.documentElement.dataset.contrast=readJson(contrastKey)?'high':'normal';
+  document.documentElement.dataset.contrast=state.student.accommodation?.highContrast || readJson(contrastKey)?'high':'normal';
 
   const className = state.student.className;
   $('#exam-title').textContent = className ? `${className} · ${q.title}` : q.title;
@@ -134,7 +153,7 @@ function renderExam() {
 }
 
 function renderQuestion() {
-  $('#submit').disabled=state.closed || state.paused;
+  $('#submit').disabled=state.paused;
   const total = state.questions.length;
   if (!total) {
     $('#hud-label').textContent = 'Prova em PDF';
@@ -301,6 +320,11 @@ $('#doc-close').addEventListener('click', () => $('#doc-dialog').close());
 // ---------- 3. salvamento com fila local
 function setAnswer(qid, value) {
   if (state.closed || state.paused) return;
+  if (rehearsalId) {
+    state.answers[qid] = value;
+    updateProgress();
+    return;
+  }
   state.pending[qid] = value;
   writeJson(queueKey(state.session.id), state.pending);
   updateProgress();
@@ -341,6 +365,7 @@ async function saveTextAnswer(qid, value) {
   if (!(qid in state.pending)) await requestFeedback(qid, value);
 }
 async function requestFeedback(qid, value) {
+  if (rehearsalId) return;
   try {
     state.feedback[qid] = { answer: value, ...(await api('/api/session/feedback', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token, questionId: qid } })) };
     if (state.questions[state.index]?.id === qid) renderQuestion();
@@ -397,7 +422,7 @@ async function beat() {
   if (!state.session) return;
   try {
     const result = await api('/api/session/heartbeat', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token } });
-    if (result.submitted) finish();
+    if (result.submitted) finish(result.receipt);
     else if (result.examPaused || result.studentPaused) {
       state.paused=true;
       $('#banner').textContent=result.studentPaused?'O professor pausou sua prova individual. Aguarde a liberação.':'A prova foi pausada pelo professor. Suas respostas ficam salvas.';
@@ -443,11 +468,17 @@ $('#submit-confirm').addEventListener('click', async () => {
   button.disabled = true;
   $('#submit-error').textContent = '';
   try {
+    if (rehearsalId) {
+      dialog.close();
+      clear($('#done .lead'), 'Ensaio concluído. Nenhum resultado foi registrado.');
+      show('done');
+      return;
+    }
     await flush();
     if (Object.keys(state.pending).length) throw new Error('Algumas respostas ainda não foram salvas no servidor. Verifique o Wi‑Fi e tente de novo.');
-    await api('/api/session/submit', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token } });
+    const { receipt } = await api('/api/session/submit', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token } });
     dialog.close();
-    finish();
+    finish(receipt);
   } catch (error) {
     $('#submit-error').textContent = error.message;
   } finally {
@@ -455,25 +486,62 @@ $('#submit-confirm').addEventListener('click', async () => {
   }
 });
 
-function finish() {
+function finish(receipt) {
+  reviewCredentials = readJson(SESSION_KEY);
+  if (receipt && reviewCredentials) writeJson('atlas.last-receipt', { receipt, credentials: reviewCredentials });
   clearInterval(state.heartbeat);
   clearTimeout(state.retryTimer);
   if (state.session) { for (const key of [queueKey(state.session.id), flagsKey(state.session.id), scratchKey(state.session.id)]) { try { localStorage.removeItem(key); } catch { /* ignore */ } } }
   try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   state.session = null;
+  $('#delivery-receipt').textContent = receipt
+    ? `Comprovante ${receipt.number} · recebido em ${new Date(receipt.submittedAt).toLocaleString('pt-BR')}`
+    : '';
+  $('#review-actions').hidden = !reviewCredentials;
   show('done');
 }
 
 // ---------- início: tenta retomar uma prova em andamento neste aparelho
 (async function boot() {
+  if (rehearsalId) {
+    try {
+      const { exam } = await api(`/api/exams/${encodeURIComponent(rehearsalId)}/rehearsal`);
+      state.session = { id: 'rehearsal-' + rehearsalId };
+      state.student = { number: '—', name: 'Ensaio do professor', className: '' };
+      state.exam = exam;
+      renderExam();
+    } catch (error) {
+      show('join');
+      $('#join-button').disabled = true;
+      $('#join-status').textContent = error.message;
+    }
+    return;
+  }
   const saved = readJson(SESSION_KEY);
   if (saved) {
-    try { await startSession(saved.code, saved.number, saved.token); return; }
+    try {
+      const data = await api('/api/session/restore', { method: 'POST', body: saved });
+      if (data.receipt) {
+        state.session = { id: saved.sessionId };
+        finish(data.receipt);
+      } else {
+        beginSession(data, saved.code, saved.number);
+      }
+      return;
+    }
     catch (error) {
       if (error.code === 'already_submitted') { finish(); return; }
       if (error.code === 'network') { show('join'); $('#join-status').textContent = 'Sem conexão com o servidor. Verifique o Wi‑Fi da sala.'; setTimeout(boot, 3000); return; }
       try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
     }
+  }
+  const last = readJson('atlas.last-receipt');
+  if (!saved && last?.receipt && last.credentials) {
+    reviewCredentials = last.credentials;
+    $('#delivery-receipt').textContent = `Comprovante ${last.receipt.number} · recebido em ${new Date(last.receipt.submittedAt).toLocaleString('pt-BR')}`;
+    $('#review-actions').hidden = false;
+    show('done');
+    return;
   }
   showJoin();
 })();

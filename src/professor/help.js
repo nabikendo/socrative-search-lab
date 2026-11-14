@@ -5,11 +5,13 @@ let root;
 let timer;
 let diagBox;
 let backupPolicy={intervalMinutes:5,keep:20};
+let desktopProfiles = null;
 const externalBackupKey='atlas.externalBackupAt';
 
 export function mount(el) { root = el; }
 export async function activate() {
   try{backupPolicy=await api('/api/backups/settings');}catch{}
+  desktopProfiles = await api('/api/desktop/profiles').catch(() => null);
   render();
   await refreshDiagnostics();
   timer = setInterval(refreshDiagnostics, 3000);
@@ -26,9 +28,34 @@ const SAMPLE = [
 const guard = (fn) => async (event) => { try { await fn(event); } catch (error) { toast(error.message || 'Algo deu errado.'); } };
 const goto = (tab) => window.dispatchEvent(new CustomEvent('atlas:goto', { detail: tab }));
 
+function profileCard() {
+  const name = h('input', { maxlength: 70, required: true, autocomplete: 'off' });
+  const pin = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]{6}', maxlength: 6, required: true, autocomplete: 'new-password' });
+  const active = desktopProfiles.profiles.find((profile) => profile.id === desktopProfiles.active);
+  return h('div', { class: 'card stack-s' },
+    h('h2', { class: 'headline' }, 'Perfis de professor'),
+    h('p', { class: 'sub' }, `Perfil atual: ${active?.name ?? ''}`),
+    h('form', { class: 'stack-s', onsubmit: guard(async (event) => {
+      event.preventDefault();
+      desktopProfiles = await api('/api/desktop/profiles', { method: 'POST', body: { name: name.value, pin: pin.value } });
+      render();
+      toast('Perfil criado');
+    }) },
+    h('label', { class: 'field' }, 'Nome', name),
+    h('label', { class: 'field' }, 'PIN de seis dígitos', pin),
+    h('button', { class: 'btn secondary', type: 'submit' }, 'Criar perfil')),
+    h('div', { class: 'class-grid' }, desktopProfiles.profiles.filter((profile) => profile.id !== desktopProfiles.active).map((profile) =>
+      h('button', { class: 'btn quiet', onclick: guard(async () => {
+        if (confirm(`Salvar o trabalho e reabrir o Atlas no perfil ${profile.name}?`)) {
+          await api('/api/desktop/profiles/switch', { method: 'POST', body: { id: profile.id } });
+        }
+      }) }, `Abrir ${profile.name}`))));
+}
+
 function render() {
   clear(root, h('div', { class: 'stack' },
     h('h1', { class: 'title' }, 'Ajuda'),
+    desktopProfiles && profileCard(),
 
     h('div', { class: 'card stack-s' },
       h('h2', { class: 'headline' }, 'Primeiros passos'),
@@ -127,15 +154,13 @@ const row = (state, title, text) => h('div', { class: `check ${state}` }, h('spa
 function checks(d) {
   const out = [row('ok', 'O Atlas está funcionando', 'Este computador está respondendo.')];
   const reachable = d.urls.filter((u) => u.reachable);
-  const shortAddress=d.aliases?.find((u)=>u.reachable);
   if (!d.urls.length) {
     out.push(row('bad', 'Este computador não está conectado a uma rede', 'Conecte-o ao Wi‑Fi da sala (ou ligue o roteador) e teste de novo.'));
   } else if (!reachable.length) {
     out.push(row('warn', 'O endereço da rede não respondeu', `${d.urls.map((u) => `${u.url}/prova`).join(' · ')}. Pode ser um bloqueio do Firewall ou do antivírus deste computador.`));
   } else {
-    out.push(row('ok', 'Endereço para os alunos', `${shortAddress ? `${shortAddress.url}/prova (nome curto)` : ''}${shortAddress ? ' · ' : ''}${reachable.map((u) => `${u.url}/prova`).join(' · ')}${reachable.length > 1 ? '. Se um não funcionar, tente o outro.' : ''}`));
+    out.push(row('ok', 'Endereço para os alunos', reachable.map((u) => `${u.url}/prova`).join(' · ')));
   }
-  if (!shortAddress && d.aliases?.length) out.push(row('warn','Nome curto não confirmado neste computador',`Se ${d.aliases[0].url}/prova não abrir no aparelho do aluno, use o endereço numérico mostrado acima.`));
   const bad = d.interfaces.filter((i) => i.virtual || i.linkLocal);
   if (bad.length && d.interfaces.length > bad.length) out.push(row('warn', 'Há redes virtuais neste computador', `Ignore endereços de ${bad.map((i) => i.name).join(', ')}. Use o que começa com 192.168 ou 10.`));
   out.push(d.examOpen ? row('ok', 'Há uma prova aberta') : row('warn', 'Nenhuma prova está aberta', 'Os alunos verão “Aguarde”. Abra a prova na aba Prova.'));

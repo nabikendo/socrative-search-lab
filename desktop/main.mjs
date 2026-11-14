@@ -12,6 +12,19 @@ let atlas;
 let window;
 let updateChannel='beta';
 let updateChannelFile='';
+const MAIN_PROFILE = 'principal';
+
+function loadProfiles() {
+  const file = path.join(app.getPath('userData'), 'profiles.json');
+  try {
+    const profiles = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(profiles)) throw new Error('Lista de perfis inválida.');
+    return { file, profiles: profiles.filter(({ id, name }) => /^[a-f0-9]{24}$/.test(id) && typeof name === 'string') };
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    return { file, profiles: [] };
+  }
+}
 
 function useUpdateChannel(channel){
   updateChannel=channel==='stable'?'stable':'beta';
@@ -65,13 +78,48 @@ function getPin(dataDir) {
 }
 
 async function start() {
-  const dataDir = path.join(app.getPath('userData'), 'data');
+  const { file: profileFile, profiles } = loadProfiles();
+  const requested = process.argv.find((arg) => arg.startsWith('--atlas-profile='))?.slice('--atlas-profile='.length);
+  const profile = profiles.find(({ id }) => id === requested);
+  const activeProfile = profile?.id ?? MAIN_PROFILE;
+  const dataDir = profile
+    ? path.join(app.getPath('userData'), 'profiles', profile.id)
+    : path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   updateChannelFile=path.join(app.getPath('userData'),'update-channel.txt');
   try{updateChannel=fs.readFileSync(updateChannelFile,'utf8').trim()==='stable'?'stable':'beta';}catch{}
   useUpdateChannel(updateChannel);
   const pin = getPin(dataDir);
-  atlas = createApp({ dataDir, pin });
+  function switchProfile(id) {
+    if (id === activeProfile) return;
+    if (atlas.store.getOpenExam()) {
+      dialog.showMessageBox(window, { type: 'warning', message: 'Encerre a aplicação atual antes de trocar de perfil.' });
+      return;
+    }
+    const args = process.argv.slice(1).filter((arg) => !arg.startsWith('--atlas-profile='));
+    app.relaunch({ args: [...args, `--atlas-profile=${id}`] });
+    app.quit();
+  }
+  atlas = createApp({ dataDir, pin, desktopProfiles: {
+    list: () => ({ active: activeProfile, profiles: [{ id: MAIN_PROFILE, name: 'Principal' }, ...profiles] }),
+    create(name, profilePin) {
+      if (profiles.some((entry) => entry.name.toLowerCase() === name.toLowerCase()) || name.toLowerCase() === 'principal') return false;
+      const id = crypto.randomBytes(12).toString('hex');
+      const directory = path.join(app.getPath('userData'), 'profiles', id);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, 'pin.txt'), profilePin + '\n', { mode: 0o600 });
+      const temporary = profileFile + '.tmp';
+      fs.writeFileSync(temporary, JSON.stringify([...profiles, { id, name }]), { mode: 0o600 });
+      fs.renameSync(temporary, profileFile);
+      profiles.push({ id, name });
+      return true;
+    },
+    switch(id) {
+      if (id !== MAIN_PROFILE && !profiles.some((entry) => entry.id === id)) return false;
+      setTimeout(() => switchProfile(id), 600);
+      return true;
+    },
+  } });
   let listening = false;
   for (const candidate of [80, 8080, 0]) {
     try {
@@ -89,21 +137,23 @@ async function start() {
   if (!listening) throw new Error('Não foi possível escolher uma porta para o Atlas.');
   const port = atlas.server.address().port;
   const studentUrls = () => {
-    const hostname = os.hostname().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
-    const suffix = port === 80 ? '' : `:${port}`;
-    const alias = hostname ? [`http://${hostname}.local${suffix}/prova`] : [];
-    return [...alias, ...Object.values(os.networkInterfaces()).flat()
-    .filter((net) => net?.family === 'IPv4' && !net.internal)
-    .map((net) => 'http://' + net.address + suffix + '/prova')];
+    return Object.values(os.networkInterfaces()).flat()
+      .filter((net) => net?.family === 'IPv4' && !net.internal)
+      .map((net) => net.address)
+      .sort((a, b) => Number(b === '192.168.5.142') - Number(a === '192.168.5.142'))
+      .map((ip) => `http://${ip}:${port}/prova`);
   };
   window = new BrowserWindow({
     width: 1200, height: 800, minWidth: 820, minHeight: 600,
-    title: 'Atlas — Provas',
+    title: `Atlas — ${profile?.name ?? 'Principal'}`,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Atlas', submenu: [
-      { label: 'Mostrar PIN do professor', click: () => dialog.showMessageBox(window, { type: 'info', title: 'PIN do professor', message: 'Seu PIN: ' + pin }) },
+      ...(!profile ? [{ label: 'Mostrar PIN do perfil principal', click: () => dialog.showMessageBox(window, { type: 'info', title: 'PIN do professor', message: 'Seu PIN: ' + pin }) }] : []),
+      { label: 'Trocar perfil', submenu: [{ id: MAIN_PROFILE, name: 'Principal' }, ...profiles].map(({ id, name }) => ({
+        label: name, enabled: id !== activeProfile, click: () => switchProfile(id),
+      })) },
       { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
       { label: 'Buscar atualizações', accelerator: 'Alt+U', click: () => checkUpdates() },
       { label: 'Canal de atualizações', submenu: [
@@ -113,7 +163,7 @@ async function start() {
       { role: 'quit', label: 'Sair' },
     ] },
   ]));
-  window.setMenuBarVisibility(false);
+  window.setMenuBarVisibility(true);
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
@@ -122,7 +172,6 @@ async function start() {
     if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault();
   });
   await window.loadURL('http://127.0.0.1:' + port + '/professor');
-  dialog.showMessageBox(window, { type: 'info', title: 'Acesso do professor', message: 'PIN do professor: ' + pin, detail: 'Para consultar novamente, abra Atlas → Mostrar PIN do professor. Para buscar atualizações, pressione Alt+U.' });
   if (app.isPackaged) setTimeout(() => checkUpdates(), 15_000).unref?.();
 }
 

@@ -36,7 +36,10 @@ async function searchStudents(term) {
 }
 
 async function showHistory(student) {
-  try { state.history = { student, entries:(await api(`/api/students/${encodeURIComponent(student.id)}/history`)).history }; }
+  try {
+    const { history, recovery } = await api(`/api/students/${encodeURIComponent(student.id)}/history`);
+    state.history = { student, entries: history, recovery };
+  }
   catch (error) { state.history = { student, entries:[], error:error.message }; }
   render();
 }
@@ -106,14 +109,69 @@ async function commit() {
   toast(`${plural(state.roster.length, 'aluno salvo', 'alunos salvos')} na turma ${name}`);
 }
 
+async function confirmImport() {
+  if (state.classId) {
+    const { roster } = await api(`/api/classes/${state.classId}/roster`);
+    const current = new Map(roster.map((student) => [student.number, student.name]));
+    const incoming = new Map(state.preview.map((student) => [student.number, student.name]));
+    const added = [...incoming].filter(([number]) => !current.has(number));
+    const removed = [...current].filter(([number]) => !incoming.has(number));
+    const changed = [...incoming].filter(([number, name]) => current.has(number) && current.get(number) !== name);
+    const sections = [
+      ['Entradas', added],
+      ['Saídas da lista atual', removed],
+      ['Alterações de nome no mesmo número', changed.map(([number, name]) => [number, `${current.get(number)} → ${name}`])],
+    ];
+    const details = sections.map(([title, rows]) => `${title} (${rows.length})\n${rows.map(([number, name]) => `${number} · ${name}`).join('\n')}`).join('\n\n');
+    if (!confirm(`Atualizar a lista de ${state.className}?\n\n${details}\n\nSe for a mesma pessoa com nome ou número corrigido, cancele e use Editar nome na lista atual antes de importar.`)) return;
+  }
+  await commit();
+}
+
+async function deleteSelectedClass() {
+  const current = state.classes.find((item) => item.id === state.classId);
+  if (!current || !confirm(`Excluir definitivamente a turma ${current.name} e sua lista? Turmas vinculadas a provas devem ser arquivadas.`)) return;
+  await api(`/api/classes/${current.id}`, { method: 'DELETE' });
+  state.classes = (await api(`/api/classes${state.includeArchived ? '?all=1' : ''}`)).classes;
+  state.classId = state.classes[0]?.id || '';
+  state.className = state.classes[0]?.name || '';
+  await loadClassRoster();
+  render();
+}
+
+async function createEmptyClass() {
+  const name = prompt('Nome da nova turma')?.trim();
+  if (!name) return;
+  const { class: item } = await api('/api/classes', { method: 'POST', body: { name, createEmpty: true } });
+  state.classes = (await api(`/api/classes${state.includeArchived ? '?all=1' : ''}`)).classes;
+  state.classId = item.id;
+  state.className = item.name;
+  await loadClassRoster();
+  render();
+}
+
 function studentList(rows, limit, actions = false) {
   const shown = limit ? rows.slice(0, limit) : rows;
   return h('div', { class: 'list' },
     shown.map((s) => h('div', { class: 'list-row' }, h('span', { class: 'num' }, s.number), h('span', { class: 'grow' }, s.name), s.className && h('span', { class: 'meta' }, s.className), actions && h('div', { class:'row' },
       h('button', { class:'btn quiet', onclick:() => renameStudent({ ...s, classId:s.classId || state.classId }) }, 'Editar nome'),
       s.id && h('button', { class:'btn quiet', onclick:() => showHistory(s) }, 'Histórico'),
+      s.id && h('button', { class:'btn quiet', onclick: () => editAccommodation(s) }, 'Adaptações'),
       s.id && h('button', { class:'btn quiet', onclick:() => { state.moving=s; state.targetClassId=''; render(); } }, 'Transferir')))),
     limit && rows.length > limit && h('div', { class: 'list-row meta' }, `e mais ${rows.length - limit}…`));
+}
+
+async function editAccommodation(student) {
+  const extraMinutes = prompt(`Minutos adicionais para ${student.name} em provas agendadas com horário de encerramento (0 a 180)`, '0');
+  if (extraMinutes === null || !extraMinutes.trim()) return;
+  const largeText = confirm('Usar fonte maior ao abrir a prova?');
+  const highContrast = confirm('Usar contraste alto ao abrir a prova?');
+  try {
+    await api(`/api/classes/${student.classId || state.classId}/students/${encodeURIComponent(student.number)}/accommodation`, {
+      method: 'POST', body: { extraMinutes: Number(extraMinutes), largeText, highContrast },
+    });
+    toast('Adaptações salvas');
+  } catch (error) { toast(error.message); }
 }
 
 function render() {
@@ -126,8 +184,18 @@ function render() {
 
   clear(root, h('div', { class: 'stack' },
     h('div', { class: 'stack-s' },
-      h('h1', { class: 'title' }, 'Turma'),
-      state.classes.length > 0 && h('label', { class: 'field' }, h('span', {}, 'Turmas salvas'), h('select', { value: state.classId, onchange: async (e) => { state.classId = e.target.value; state.className = state.classes.find((c) => c.id === state.classId)?.name || ''; await loadClassRoster(); render(); } }, state.classes.map((c) => h('option', { value: c.id }, `${c.name} · ${c.students} alunos`)))),
+      h('div', { class: 'row between' }, h('h1', { class: 'title' }, 'Turma'),
+        h('button', { class: 'btn secondary', onclick: () => createEmptyClass().catch((error) => toast(error.message)) }, 'Criar turma')),
+      state.classes.length > 0 && h('div', { class: 'class-grid', 'aria-label': 'Turmas salvas' },
+        state.classes.map((item) => h('button', {
+          type: 'button', class: 'btn secondary class-tile', 'aria-pressed': String(item.id === state.classId),
+          onclick: async () => {
+            state.classId = item.id;
+            state.className = item.name;
+            await loadClassRoster();
+            render();
+          },
+        }, h('strong', {}, item.name), h('span', {}, `${item.students} alunos${item.archived ? ' · Arquivada' : ''}`)))),
       h('label', { class:'row caption' }, h('input', { type:'checkbox', checked:state.includeArchived, onchange:async (e) => { state.includeArchived=e.target.checked; state.classes=(await api(`/api/classes${state.includeArchived ? '?all=1' : ''}`)).classes; if (!state.classes.some((c)=>c.id===state.classId)) state.classId=state.classes[0]?.id || ''; await loadClassRoster(); render(); } }), 'Mostrar turmas arquivadas'),
       h('p', { class: 'lead' }, state.roster.length ? `${plural(state.roster.length, 'aluno cadastrado', 'alunos cadastrados')}${state.className ? ` em ${state.className}` : ''}.` : 'Importe a lista de frequência para começar.')),
 
@@ -146,6 +214,8 @@ function render() {
       h('button',{class:'btn quiet',onclick:()=>{state.moving=null;render();}},'Cancelar')),
 
     state.history && h('div', { class:'card stack-s' }, h('div',{class:'row between'},h('h2',{class:'headline'},`Histórico de ${state.history.student.name}`),h('button',{class:'btn quiet',onclick:()=>{state.history=null;render();}},'Fechar')),
+      skillTimeline(state.history.entries),
+      recoveryPlan(state.history.recovery),
       state.history.error ? h('p',{class:'caption'},state.history.error) : state.history.entries.length ? h('div',{class:'list'},state.history.entries.map((entry)=>h('div',{class:'list-row'},h('span',{class:'grow'},`${entry.title} · ${entry.className || 'Turma não informada'}`),h('span',{class:'badge'},entry.status==='submitted'?'Entregue':'Em andamento'),h('span',{class:'caption'},new Date(entry.startedAt).toLocaleDateString('pt-BR'))))) : h('p',{class:'caption'},'Ainda não há provas registradas para este estudante.')),
 
     !state.roster.length && !state.preview && h('ol', { class: 'steps' },
@@ -162,7 +232,7 @@ function render() {
         studentList(state.preview, 8),
         h('p', { class: 'caption' }, 'A lista será salva separadamente; as outras turmas e o histórico das provas serão preservados.'),
         h('div', { class: 'row' },
-          h('button', { class: 'btn', onclick: () => commit().catch((e) => { state.error = e.message; render(); }) }, `Importar ${state.preview.length}`),
+          h('button', { class: 'btn', onclick: () => confirmImport().catch((e) => toast(e.message)) }, state.classId ? 'Conferir mudanças' : `Importar ${state.preview.length}`),
           h('button', { class: 'btn secondary', onclick: () => { state.preview = null; state.duplicates = []; render(); } }, 'Cancelar')))
       : h('div', { class: 'card stack-s' },
         h('h2', { class: 'headline' }, 'Importar lista'),
@@ -173,7 +243,8 @@ function render() {
           h('div', { class: 'stack-s', style: 'margin-top:12px' }, textarea, h('div', {}, h('button', { class: 'btn secondary', onclick: () => propose(parseRosterTextDetailed(textarea.value)) }, 'Ler lista')))),
         state.error && h('p', { class: 'error', role: 'alert' }, state.error)),
 
-    state.roster.length > 0 && !state.preview && h('div', { class: 'stack-s' },
+    state.classId && !state.preview && h('div', { class: 'stack-s' },
+      h('button', { class: 'btn danger', onclick: () => deleteSelectedClass().catch((error) => toast(error.message)) }, 'Excluir turma'),
       h('div',{class:'row between'},h('h2', { class: 'headline' }, 'Lista atual'), state.classId && h('button',{class:'btn quiet',onclick:async()=>{
         const current=state.classes.find((c)=>c.id===state.classId);
         const archived=!!current?.archived;
@@ -186,4 +257,43 @@ function render() {
 }
 
 const step = (n, title, text) => h('li', { class: 'step' }, h('span', { class: 'step-n' }, n), h('div', {}, h('div', { class: 'headline', style: 'font-size:17px' }, title), h('div', { class: 'sub' }, text)));
+
+function skillTimeline(entries) {
+  const groups = new Map();
+  for (const entry of [...entries].reverse()) {
+    for (const point of entry.skills || []) {
+      if (!groups.has(point.skill)) groups.set(point.skill, []);
+      groups.get(point.skill).push({ ...point, title: entry.title, date: entry.submittedAt });
+    }
+  }
+  if (!groups.size) return null;
+  return h('details', { class: 'card' }, h('summary', {}, 'Evolução por habilidade'),
+    [...groups.values()].map((points) => h('section', { class: 'stack-s' },
+      h('h3', {}, points[0].label || points[0].skill),
+      points.map((point) => h('div', { class: 'list-row' },
+        h('span', { class: 'grow' }, `${new Date(point.date).toLocaleDateString('pt-BR')} · ${point.title}`),
+        h('strong', {}, `${point.percent}%`))))));
+}
+
+function recoveryPlan(questions) {
+  if (!questions?.length) return null;
+  const selected = new Set();
+  return h('details', { class: 'card' }, h('summary', {}, 'Sugestões de recuperação por habilidade'),
+    h('p', { class: 'caption' }, 'Sugestões do banco para habilidades com desempenho abaixo de 60%. Revise e selecione as questões.'),
+    questions.map((question) => h('label', { class: 'row' },
+      h('input', { type: 'checkbox', onchange: (event) => event.target.checked ? selected.add(question.bankId) : selected.delete(question.bankId) }),
+      h('span', {}, `${question.skill} · ${question.text}`))),
+    h('button', { class: 'btn secondary', onclick: async () => {
+      if (!selected.size) { toast('Selecione as questões de recuperação.'); return; }
+      try {
+        const student = state.history.student;
+        await api('/api/exams', { method: 'POST', body: {
+          title: `Recuperação — ${student.name}`,
+          classId: student.classId || state.classId || null,
+          questions: questions.filter((question) => selected.has(question.bankId)),
+        } });
+        toast('Rascunho de recuperação salvo na aba Prova.');
+      } catch (error) { toast(error.message); }
+    } }, 'Salvar rascunho de recuperação'));
+}
 

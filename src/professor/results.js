@@ -62,7 +62,71 @@ function summary(d) {
       }},state.alertsEnabled?'Avisos ligados':'Avisar quando entregarem'),
       h('a', { class: 'btn secondary', href: `/api/exams/${d.exam.id}/export.csv` }, 'Baixar CSV'),
       h('a', { class: 'btn secondary', href: `/api/exams/${d.exam.id}/export.xlsx` }, 'Baixar XLSX'),
-      h('a', { class: 'btn quiet', href: `/api/exams/${d.exam.id}/report.pdf` }, 'Relatório para impressão')));
+      h('a', { class: 'btn quiet', href: `/api/exams/${d.exam.id}/report.pdf` }, 'Relatório para impressão')),
+    d.exam.status === 'closed' && d.exam.questions.length > 0 && [annulmentForm(d.exam), releaseForm(d.exam)],
+    schoolExport(d.exam));
+}
+
+function schoolExport(exam) {
+  let template = { scale: 10, columns: 'number,name,className,score' };
+  try { template = JSON.parse(localStorage.getItem('atlas.schoolExport')) || template; } catch {}
+  const scale = h('input', { type: 'number', min: 1, max: 1000, step: 'any', required: true, value: template.scale });
+  const keys = { number: 'Número', name: 'Estudante', className: 'Turma', date: 'Entrega', score: 'Nota' };
+  const selects = Array.from({ length: 5 }, (_, index) => {
+    const select = h('select', { 'aria-label': `Coluna ${index + 1}` }, h('option', { value: '' }, 'Omitir'),
+      Object.entries(keys).map(([value, label]) => h('option', { value }, label)));
+    select.value = template.columns.split(',')[index] || '';
+    return select;
+  });
+  return h('details', { class: 'card' }, h('summary', {}, 'Planilha no formato da escola'),
+    h('form', { class: 'stack-s', onsubmit: (event) => {
+      event.preventDefault();
+      const chosen = selects.map((select) => select.value).filter(Boolean);
+      if (!chosen.length || new Set(chosen).size !== chosen.length) { toast('Escolha colunas sem repetir.'); return; }
+      const settings = { scale: scale.value, columns: chosen.join(',') };
+      localStorage.setItem('atlas.schoolExport', JSON.stringify(settings));
+      location.href = `/api/exams/${exam.id}/export.csv?${new URLSearchParams(settings)}`;
+    } },
+    h('label', { class: 'field' }, 'Nota máxima na planilha', scale),
+    h('div', { class: 'class-grid' }, selects.map((select, index) => h('label', { class: 'field' }, `Coluna ${index + 1}`, select))),
+    h('button', { type: 'submit', class: 'btn secondary' }, 'Salvar modelo e baixar CSV')));
+}
+
+function releaseForm(exam) {
+  const date = h('input', { type: 'datetime-local', required: true });
+  return h('details', { class: 'card' }, h('summary', {}, 'Programar devolutiva'),
+    exam.releaseAt && h('p', {}, `Data atual: ${new Date(exam.releaseAt).toLocaleString('pt-BR')}`),
+    h('form', { class: 'stack-s', onsubmit: async (event) => {
+      event.preventDefault();
+      try {
+        await api(`/api/exams/${exam.id}/release`, { method: 'POST', body: { date: new Date(date.value).toISOString() } });
+        await refresh(true);
+        toast('Devolutiva programada');
+      } catch (error) { toast(error.message); }
+    } }, h('label', { class: 'field' }, 'Data e hora', date), h('button', { class: 'btn', type: 'submit' }, 'Salvar data')));
+}
+
+function annulmentForm(exam) {
+  const question = h('select', {}, exam.questions.map((item, index) =>
+    h('option', { value: item.id }, `Q${index + 1} · ${item.text.slice(0, 90)}${exam.annulled?.[item.id] ? ' (anulada)' : ''}`)));
+  const mode = h('select', {}, h('option', { value: 'credit' }, 'Dar o ponto a todos'), h('option', { value: 'remove' }, 'Retirar a questão do total'));
+  const reason = h('input', { required: true, maxLength: 500 });
+  return h('details', { class: 'card' }, h('summary', {}, 'Anular questão'),
+    h('form', { class: 'stack-s', onsubmit: async (event) => {
+      event.preventDefault();
+      if (!confirm('Recalcular as notas de toda a turma e registrar esta decisão?')) return;
+      try {
+        await api(`/api/exams/${exam.id}/annul-question`, { method: 'POST', body: {
+          questionId: question.value, mode: mode.value, reason: reason.value,
+        } });
+        await refresh(true);
+        toast('Notas recalculadas');
+      } catch (error) { toast(error.message); }
+    } },
+    h('label', { class: 'field' }, 'Questão', question),
+    h('label', { class: 'field' }, 'Recálculo', mode),
+    h('label', { class: 'field' }, 'Motivo', reason),
+    h('button', { class: 'btn', type: 'submit' }, 'Aplicar anulação')));
 }
 
 function pendingStudents(d) {

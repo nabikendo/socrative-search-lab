@@ -6,13 +6,12 @@ import { SAEB_LEVELS, SAEB_SKILLS, skillLabel } from '../../shared/skills.js';
 
 let root;
 let timer;
-const state = { exams: [], classes: [], model: null, dirty: false, urls: [], aliases:[], live: null, error: '', scheduleStart: '', scheduleEnd: '' };
+const state = { exams: [], classes: [], model: null, dirty: false, urls: [], live: null, error: '', scheduleStart: '', scheduleEnd: '' };
 
 export function mount(el) { root = el; }
 export async function activate() {
-  const network=await api('/api/network').catch(() => ({ urls: [], aliases:[] }));
+  const network=await api('/api/network').catch(() => ({ urls: [] }));
   state.urls = network.urls;
-  state.aliases = network.aliases || [];
   state.classes = (await api('/api/classes')).classes;
   await loadList();
   const open = state.exams.find((e) => e.status === 'open');
@@ -77,6 +76,12 @@ async function save() {
   state.dirty = false;
   return exam;
 }
+async function createVersion(exam, kind) {
+  if (state.dirty && !confirm('Criar a versão a partir da última prova salva?')) return;
+  const { exam: copy } = await api(`/api/exams/${exam.id}/version`, { method: 'POST', body: { kind } });
+  await loadList();
+  await select(copy.id);
+}
 const guard = (fn) => async (ev) => { try { state.error = ''; await fn(ev); } catch (e) { state.error = e.message; } render(); };
 const touch = () => { state.dirty = true; const b = root.querySelector('#save'); if (b) b.disabled = false; };
 
@@ -95,6 +100,7 @@ function render() {
         h('button', { class: 'btn secondary', onclick: () => { state.model = blank(); state.dirty = false; render(); } }, 'Nova'))),
 
     isOpen && openBanner(m),
+    m.original && h('p', { class: 'notice' }, `${m.original.kind === 'second-call' ? 'Segunda chamada' : 'Versão de'} · ${m.original.title}`),
     isPaused && h('div',{class:'card stack-s'},h('div',{class:'row between'},h('strong',{},'Prova pausada'),h('span',{class:'hero-code'},m.accessCode)),h('p',{class:'sub'},'Os alunos conectados estão impedidos de responder. Retome quando estiver pronto.'),h('button',{class:'btn secondary',onclick:()=>window.open(`/projetor?exam=${encodeURIComponent(m.id)}`,'_blank','noopener')},'Abrir acompanhamento no projetor')),
     isScheduled && h('div', { class:'notice' }, `Esta prova abrirá automaticamente em ${new Date(m.scheduledStart).toLocaleString('pt-BR')}${m.scheduledEnd ? ` e encerrará em ${new Date(m.scheduledEnd).toLocaleString('pt-BR')}` : ''}.`),
     m.id && !isOpen && !isPaused && scheduleCard(m),
@@ -108,7 +114,23 @@ function render() {
         h('span', {}, h('strong', {}, 'Embaralhar para cada aluno'), h('span', { class: 'caption', style: 'display:block' }, 'Cada aluno vê as questões e as alternativas em ordem diferente. Evite alternativas como “todas as anteriores”.'))),
       h('label', { class: 'option', style: 'border-radius:14px' }, h('input', { type: 'checkbox', checked: !!m.feedback, disabled: m.locked, onchange: (e) => { m.feedback = e.target.checked; touch(); } }), h('span', {}, h('strong', {}, 'Mostrar feedback após cada questão'), h('span', { class: 'caption', style: 'display:block' }, 'Mostra gabarito e explicação depois que o aluno responder.')))),
 
-    ...(m.pdfOnly ? [] : m.questions.map((q, i) => questionCard(q, i))),
+    !m.pdfOnly && h('div', { class: `question-layout${m.document?.kind === 'pdf' ? ' with-original' : ''}` },
+      h('div', { class: 'stack' }, m.questions.map((q, i) => questionCard(q, i))),
+      m.document?.kind === 'pdf' && h('details', { class: 'card', ontoggle: async (event) => {
+        const details = event.currentTarget;
+        const viewer = details.querySelector('.original-pdf');
+        if (!details.open || viewer.dataset.loaded) return;
+        viewer.dataset.loaded = 'true';
+        try {
+          const { mountPdf } = await import('../lib/pdf-viewer.js');
+          await mountPdf(viewer, `/api/document/${m.document.id}`);
+        } catch {
+          delete viewer.dataset.loaded;
+          viewer.textContent = 'Não consegui abrir o PDF original.';
+        }
+      } },
+        h('summary', {}, 'Conferir com o PDF original'),
+        h('div', { class: 'original-pdf', 'aria-label': 'PDF original da prova' }))),
 
     !m.locked && h('div', { class: 'row' },
       h('button', { class: 'btn secondary', onclick: () => { m.questions.push(newQuestion('choice')); touch(); render(); } }, 'Adicionar questão'),
@@ -120,28 +142,55 @@ function render() {
     state.error && h('p', { class: 'error', role: 'alert' }, state.error),
     h('div', { class: 'row' },
       h('button', { id: 'save', class: 'btn', disabled: !state.dirty && !!m.id, onclick: guard(async () => { await save(); toast('Prova salva'); }) }, 'Salvar'),
+      m.id && h('a', { class: 'btn quiet', href: `/prova?ensaio=${encodeURIComponent(m.id)}` }, 'Ensaiar prova salva'),
+      m.id && h('button', { class: 'btn quiet', onclick: guard(() => createVersion(m, 'version')) }, 'Criar versão'),
+      m.id && h('button', { class: 'btn quiet', onclick: guard(() => createVersion(m, 'second-call')) }, 'Criar segunda chamada'),
       isPaused
         ? h('div',{class:'row'},h('button',{class:'btn secondary',onclick:guard(async()=>{await api(`/api/exams/${m.id}/resume`,{method:'POST'});await loadList();await select(m.id);toast('Prova retomada para toda a turma');})},'Retomar prova'),h('button',{class:'btn danger',onclick:guard(async()=>{await api(`/api/exams/${m.id}/close`,{method:'POST'});await loadList();await select(m.id);toast('Prova encerrada');})},'Encerrar prova'))
         : isOpen
         ? h('div',{class:'row'},h('button',{class:'btn quiet',onclick:guard(async()=>{await api(`/api/exams/${m.id}/pause`,{method:'POST'});await loadList();await select(m.id);toast('Prova pausada para toda a turma');})},'Pausar turma'),h('button',{class:'btn secondary',onclick:guard(async()=>{await api(`/api/exams/${m.id}/close`,{method:'POST'});await loadList();await select(m.id);})},'Encerrar prova'))
         : isScheduled
         ? h('button', { class:'btn secondary', onclick:guard(async () => { await api(`/api/exams/${m.id}/schedule/cancel`, { method:'POST' }); await loadList(); await select(m.id); toast('Agendamento cancelado'); }) }, 'Cancelar agendamento')
-        : h('button', { class: 'btn secondary', onclick: guard(async () => { const { id } = state.dirty || !m.id ? await save() : m; const { code } = await api(`/api/exams/${id}/open`, { method: 'POST' }); await loadList(); await select(id); toast(`Prova aberta · código ${code}`); }) }, 'Abrir para os alunos'),
+        : h('button', { class: 'btn secondary', onclick: guard(async () => {
+          const questions = payload().questions;
+          const review = await Promise.all(questions.map(async (question, index) => {
+            const issues = [];
+            if ((question.type === 'choice' && !question.correct) || (question.type === 'multi' && !question.correct?.length)) issues.push('sem gabarito');
+            const options = question.options.map((option) => option.trim().toLocaleLowerCase('pt-BR')).filter(Boolean);
+            if (new Set(options).size < options.length) issues.push('alternativas repetidas');
+            const weight = Number(m.questions[index].weight);
+            if (!Number.isFinite(weight) || weight <= 0 || weight > 100) issues.push('peso inválido');
+            if (question.image) {
+              const image = new Image();
+              image.src = question.image;
+              try { await image.decode(); } catch { issues.push('imagem não abriu'); }
+            }
+            return issues.length ? `Questão ${index + 1}: ${issues.join(', ')}` : null;
+          }));
+          const total = questions.reduce((sum, question) => sum + question.weight, 0);
+          if (!confirm(`Revisar e abrir a prova?\n\n${questions.length} questões · ${total.toFixed(2)} pontos\n${review.filter(Boolean).join('\n')}`)) return;
+          const { id } = state.dirty || !m.id ? await save() : m;
+          const { code } = await api(`/api/exams/${id}/open`, { method: 'POST' });
+          await loadList();
+          await select(id);
+          toast(`Prova aberta · código ${code}`);
+        }) }, 'Abrir para os alunos'),
       m.id && h('button', { class: 'btn quiet', onclick: guard(async () => { state.model = { ...blank(), title: `${m.title} (cópia)`, questions: payloadQuestions(m).map((q) => ({ ...q, correctIndex: typeof q.correct==='string'?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((value)=>q.options.indexOf(value)).filter((i)=>i>=0):[],numericAnswer:q.type==='numeric'?q.correct:'' })) }; state.dirty = true; }) }, 'Duplicar'),
       m.id && !isOpen && !isPaused && h('button', { class: 'btn danger', onclick: guard(async () => { if (!confirm('Excluir esta prova?')) return; await api(`/api/exams/${m.id}`, { method: 'DELETE' }); await loadList(); await select(state.exams[0]?.id); }) }, 'Excluir'))));
 }
 const payloadQuestions = (m) => payload().questions.map((q) => ({ ...q, id: questionId() }));
 
 function openBanner(m) {
-  const url = `${state.aliases[0] || state.urls[0] || location.origin}/prova`;
+  const url = state.urls.length ? `${state.urls[0]}/prova` : '';
+  if (!url) return h('div', { class: 'notice warn' }, `Código: ${m.accessCode}. Conecte este computador à rede dos alunos para gerar o endereço de acesso.`);
   const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
   return h('div', { class: 'card row', style: 'gap:28px' },
     h('div', { class: 'qr', 'aria-label': `QR Code de ${url}`, innerHTML: qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) }),
     h('div', { class: 'stack-s grow' },
       h('span', { class: 'eyebrow' }, 'Prova aberta · código'),
       h('div', { class: 'hero-code' }, m.accessCode),
-      h('p', {}, 'Endereço curto neste Wi-Fi: ', h('strong', {}, url)),
-      (state.aliases.length + state.urls.length > 1) && h('p', { class: 'caption' }, 'Se o nome curto não abrir no aparelho, use: ', [...state.aliases.slice(1), ...state.urls].map((u) => `${u}/prova`).join(' · ')),
+      h('p', {}, 'Endereço para os alunos: ', h('strong', {}, url)),
+      state.urls.length > 1 && h('p', { class: 'caption' }, 'Outros endereços deste computador: ', state.urls.slice(1).map((u) => `${u}/prova`).join(' · ')),
       h('button', { class:'btn secondary', type:'button', onclick:() => window.open(`/projetor?exam=${encodeURIComponent(m.id)}`, '_blank', 'noopener') }, 'Abrir acompanhamento no projetor'),
       h('span', { id: 'live', class: 'badge ok' }, liveText())));
 }
@@ -171,6 +220,65 @@ function scheduleCard(m) {
     }) }, 'Salvar agendamento'));
 }
 
+function questionText(question, index, locked) {
+  const input = h('textarea', { value: question.text, disabled: locked, placeholder: 'Enunciado',
+    'aria-label': `Enunciado da questão ${index + 1}`, oninput: (event) => { question.text = event.target.value; touch(); } });
+  const insert = (value) => {
+    input.setRangeText(value, input.selectionStart, input.selectionEnd, 'end');
+    question.text = input.value;
+    touch();
+    input.focus();
+  };
+  return h('div', { class: 'stack-s' }, input, !locked && h('div', { class: 'row' },
+    h('button', { class: 'btn quiet', onclick: () => {
+      const top = prompt('Numerador');
+      if (!top) return;
+      const bottom = prompt('Denominador');
+      if (bottom) insert(`(${top})⁄(${bottom})`);
+    } }, 'Fração'),
+    h('button', { class: 'btn quiet', onclick: () => {
+      const value = prompt('Expressão dentro da raiz');
+      if (value) insert(`√(${value})`);
+    } }, 'Raiz'),
+    h('button', { class: 'btn quiet', onclick: () => {
+      const value = prompt('Expoente inteiro');
+      if (value && /^-?\d+$/.test(value)) insert([...value].map((character) => character === '-' ? '⁻' : '⁰¹²³⁴⁵⁶⁷⁸⁹'[Number(character)]).join(''));
+    } }, 'Potência'),
+    h('button', { class: 'btn quiet', onclick: () => {
+      const values = prompt('Valores do gráfico de barras, separados por ponto e vírgula', '2;5;3');
+      if (!values) return;
+      const points = values.split(';').map((value) => value.trim().replace(',', '.'));
+      const numbers = points.map(Number);
+      if (numbers.length > 12 || points.some((value, i) => !value || !Number.isFinite(numbers[i]))) { toast('Informe até 12 valores numéricos.'); return; }
+      if (question.image && !confirm('Substituir a imagem atual por este gráfico?')) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = 720;
+      canvas.height = 320;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, 720, 320);
+      context.font = '16px sans-serif';
+      const min = Math.min(0, ...numbers);
+      const max = Math.max(0, ...numbers);
+      const range = max - min || 1;
+      const y = (number) => 254 - 205 * (number - min) / range;
+      context.fillStyle = '#111';
+      context.fillRect(24, y(0), 672, 1);
+      const width = 672 / numbers.length;
+      numbers.forEach((number, i) => {
+        const left = 24 + i * width;
+        context.fillStyle = '#51439f';
+        context.fillRect(left + 10, Math.min(y(0), y(number)), width - 20, Math.abs(y(number) - y(0)));
+        context.fillStyle = '#111';
+        context.fillText(`${String.fromCharCode(65 + i)}: ${points[i]}`, left + 4, 289, width - 8);
+      });
+      question.image = canvas.toDataURL('image/png');
+      question.imageAlt = `Gráfico de barras. ${points.map((value, i) => `${String.fromCharCode(65 + i)}: ${value}`).join('; ')}.`;
+      touch();
+      render();
+    } }, 'Gráfico de barras')));
+}
+
 function questionCard(q, index) {
   const m = state.model;
   const lock = m.locked;
@@ -181,7 +289,7 @@ function questionCard(q, index) {
         !lock && h('select',{ 'aria-label':`Tipo da questão ${index+1}`, value:q.type, onchange:(e)=>{q.type=e.target.value;if(['choice','multi'].includes(q.type)&&q.options.length<2)q.options=['',''];touch();render();}},
           h('option',{value:'choice'},'Uma alternativa correta'),h('option',{value:'multi'},'Várias alternativas corretas'),h('option',{value:'numeric'},'Resposta numérica'),h('option',{value:'text'},'Resposta aberta')),
         !lock && m.questions.length > 1 && h('button', { class: 'pill-btn', 'aria-label': 'Remover questão', onclick: () => { m.questions.splice(index, 1); touch(); render(); } }, '×'))),
-    h('textarea', { value: q.text, disabled: lock, placeholder: 'Enunciado', 'aria-label': `Enunciado da questão ${index + 1}`, oninput: (e) => { q.text = e.target.value; touch(); } }),
+    questionText(q, index, lock),
     ['choice','multi'].includes(q.type) && h('div', { class: 'stack-s' },
       q.options.map((option, i) => h('div', { class: 'opt-row' },
         h('input', { type: q.type==='choice'?'radio':'checkbox', name: `c-${q.id}`, checked: q.type==='choice'?q.correctIndex===i:q.correctIndexes.includes(i), disabled: lock, title: 'Resposta correta', 'aria-label': `Alternativa ${i + 1} é correta`, onchange: () => { if(q.type==='choice')q.correctIndex=i;else if(q.correctIndexes.includes(i))q.correctIndexes=q.correctIndexes.filter((x)=>x!==i);else q.correctIndexes.push(i);touch(); } }),
@@ -269,16 +377,32 @@ function documentCard(m) {
     h('h2', { class: 'headline' }, 'Documento da prova'),
       h('p', { class: 'sub' }, m.document ? `${m.document.name} · ${(m.document.size / 1048576).toFixed(1)} MB` : m.pdfOnly ? 'Importe o PDF que contém as questões. A lista de alunos abrirá o arquivo e poderá entregar a prova sem digitar as questões no Atlas.' : 'Opcional: anexe um PDF ou DOCX com textos e figuras. O aluno vê o arquivo junto das questões.'),
     h('div', { class: 'row' }, picker, h('label', { class: 'btn secondary', for: 'doc-file' }, m.document ? 'Trocar arquivo' : 'Anexar PDF ou DOCX'),
-      m.document?.kind === 'pdf' && !m.locked && h('button', { class: 'btn secondary', onclick: guard(async () => {
+      m.document?.kind === 'pdf' && !m.locked && h('button', { class: 'btn secondary', onclick: guard(async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        const label = button.textContent;
+        try {
         const response = await fetch(`/api/document/${m.document.id}`);
         if (!response.ok) throw new Error('Não consegui abrir o PDF para extrair as questões.');
         const { extractPdfText } = await import('./pdf-text.js');
-        const extracted = parsePdfQuestionText(await extractPdfText(await response.blob()));
-        if (!extracted.length) throw new Error('Não encontrei questões numeradas no texto deste PDF. Se ele for digitalizado como imagem, use a opção “As questões estão em um PDF” ou digite as questões.');
+        const extracted = parsePdfQuestionText(await extractPdfText(await response.blob(), {
+          recognizePage: async (image, page, total) => {
+            button.textContent = `Reconhecendo página ${page} de ${total}…`;
+            return (await api('/api/documents/ocr-page', { method: 'POST', raw: image })).text;
+          },
+        }));
+        if (!extracted.length) throw new Error('Não encontrei questões numeradas neste PDF.');
+        if (state.model !== m) return;
+        if (!m.pdfOnly && m.questions.some((question) => question.text.trim()) &&
+            !confirm(`Substituir as questões do editor por ${extracted.length} questões extraídas?`)) return;
         m.pdfOnly = false;
         m.questions = extracted.map((q) => ({ ...q, correctIndex: null }));
-        touch(); await save();
+        touch(); render();
         toast(`${extracted.length} questões extraídas. Revise os enunciados e gabaritos antes de abrir a prova.`);
+        } finally {
+          button.disabled = false;
+          button.textContent = label;
+        }
       }) }, 'Extrair questões para revisar'),
       m.document && h('button', { class: 'btn danger', onclick: guard(async () => { await api(`/api/exams/${m.id}/document`, { method: 'DELETE' }); m.document = null; }) }, 'Remover')));
 }

@@ -241,10 +241,25 @@ test('busca, edição, transferência, arquivo de turma e histórico acompanham 
 });
 
 test('upload valida o conteúdo real do arquivo', async () => {
-  const bad = await call(`/api/exams/${examId}/document?name=a.pdf`, { method: 'POST', cookie: admin, raw: Buffer.from('<script>alert(1)</script>'), headers: { 'content-type': 'application/octet-stream' } });
+  const { data: { exam } } = await call('/api/exams', { method: 'POST', cookie: admin, body: { title: 'Anexos', questions: [{ type: 'text', text: 'Questão' }] } });
+  const bad = await call(`/api/exams/${exam.id}/document?name=a.pdf`, { method: 'POST', cookie: admin, raw: Buffer.from('<script>alert(1)</script>'), headers: { 'content-type': 'application/octet-stream' } });
   assert.equal(bad.status, 415);
-  const pdf = await call(`/api/exams/${examId}/document?name=prova.pdf`, { method: 'POST', cookie: admin, raw: Buffer.from('%PDF-1.4\n%%EOF'), headers: { 'content-type': 'application/octet-stream' } });
+  const pdf = await call(`/api/exams/${exam.id}/document?name=prova.pdf`, { method: 'POST', cookie: admin, raw: Buffer.from('%PDF-1.4\n%%EOF'), headers: { 'content-type': 'application/octet-stream' } });
   assert.equal(pdf.status, 200);
+});
+
+test('ensaio e versões preservam a aplicação original', async () => {
+  const { data: { exam } } = await call('/api/exams', { method: 'POST', cookie: admin, body: {
+    title: 'Original', questions: [{ type: 'choice', text: 'Um mais um?', options: ['1', '2'], correct: '2' }],
+  } });
+  assert.equal((await call(`/api/exams/${exam.id}/rehearsal`)).status, 401);
+  const rehearsal = await call(`/api/exams/${exam.id}/rehearsal`, { cookie: admin });
+  assert.equal(rehearsal.data.exam.questions[0].correct, undefined);
+  const copy = await call(`/api/exams/${exam.id}/version`, { method: 'POST', cookie: admin, body: { kind: 'second-call' } });
+  assert.equal(copy.data.exam.original.id, exam.id);
+  assert.notEqual(copy.data.exam.id, exam.id);
+  const result = await call(`/api/exams/${exam.id}/results`, { cookie: admin });
+  assert.equal(result.data.results.length, 0);
 });
 
 test('prova somente em PDF: não aceita prova vazia e permite que o aluno abra e entregue o documento', async () => {

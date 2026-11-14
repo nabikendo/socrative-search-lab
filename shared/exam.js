@@ -78,6 +78,14 @@ export function scoreSession(exam, answers = {}, grades = {}) {
   let pending = 0;
   const detail = {};
   for (const q of exam.questions) {
+    const annulment = exam.annulled?.[q.id];
+    if (annulment) {
+      const earned = annulment.mode === 'credit' ? q.weight : 0;
+      score += earned;
+      max += earned;
+      detail[q.id] = { mode: 'annulled', earned };
+      continue;
+    }
     max += q.weight;
     const given = answers[q.id];
     if (q.type === 'choice' && q.correct) {
