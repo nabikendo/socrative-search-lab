@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, shell, Menu } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -20,7 +20,8 @@ function getPin(dataDir) {
 async function start() {
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
-  atlas = createApp({ dataDir, pin: getPin(dataDir) });
+  const pin = getPin(dataDir);
+  atlas = createApp({ dataDir, pin });
   await new Promise((resolve, reject) => {
     atlas.server.once('error', reject);
     atlas.server.listen(0, '0.0.0.0', () => {
@@ -34,6 +35,12 @@ async function start() {
     title: 'Atlas — Provas',
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Atlas', submenu: [
+      { label: 'Mostrar PIN do professor', click: () => dialog.showMessageBox(window, { type: 'info', title: 'PIN do professor', message: 'Seu PIN: ' + pin }) },
+      { role: 'quit', label: 'Sair' },
+    ] },
+  ]));
   window.setMenuBarVisibility(false);
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
@@ -43,6 +50,7 @@ async function start() {
     if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault();
   });
   await window.loadURL('http://127.0.0.1:' + port + '/professor');
+  dialog.showMessageBox(window, { type: 'info', title: 'Acesso do professor', message: 'PIN do professor: ' + pin, detail: 'Para consultar novamente, pressione Alt e abra Atlas → Mostrar PIN do professor.' });
 }
 
 app.on('second-instance', () => {
