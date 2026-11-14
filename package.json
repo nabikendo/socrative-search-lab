@@ -19,12 +19,12 @@
   "devDependencies": {
     "electron": "^38.0.0",
     "electron-builder": "^26.0.0",
-    "electron-updater": "^6.8.11",
     "pdfjs-dist": "5.4.149",
     "qrcode-generator": "^2.0.4",
     "vite": "^6.1.0"
   },
   "dependencies": {
+    "electron-updater": "6.8.11",
     "mammoth": "^1.9.1",
     "read-excel-file": "^9.3.14",
     "sanitize-html": "^2.17.0"

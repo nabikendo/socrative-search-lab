@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, shell, Menu } from 'electron';
-import { autoUpdater } from 'electron-updater';
+import updater from 'electron-updater';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { createApp } from '../server.mjs';
+
+const { autoUpdater } = updater;
 
 let atlas;
 let window;
@@ -24,6 +26,7 @@ autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.allowPrerelease = true;
 autoUpdater.channel = 'beta';
+autoUpdater.allowDowngrade = false;
 autoUpdater.on('update-available', async (info) => {
   const { response } = await dialog.showMessageBox(window, {
     type: 'info', title: 'Atualização do Atlas disponível',
