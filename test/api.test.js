@@ -7,6 +7,8 @@ import { createApp } from '../server.mjs';
 import { parseRosterText } from '../shared/roster.js';
 import { scoreSession, normalizeQuestions, parsePdfQuestionText } from '../shared/exam.js';
 import { openStore } from '../lib/store.mjs';
+import JSZip from 'jszip';
+import { DatabaseSync } from 'node:sqlite';
 
 let app, base, admin;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-'));
@@ -137,8 +139,8 @@ test('fluxo completo do aluno, sem vazar gabarito', async () => {
   assert.equal(projector.data.started, 1);
   assert.ok(!JSON.stringify(projector.data).includes('Aluno <img'), 'modo projetor não expõe nomes de estudantes');
   const q2id = q2.id;
-  assert.equal((await call('/api/grade', { method: 'POST', cookie: admin, body: { sessionId: student.id, questionId: q2id, score: 5 } })).status, 400);
-  assert.equal((await call('/api/grade', { method: 'POST', cookie: admin, body: { sessionId: student.id, questionId: q2id, score: 0.5 } })).status, 200);
+  assert.equal((await call('/api/grade', { method: 'POST', cookie: admin, body: { sessionId: student.id, questionId: q2id, score: 5, reason:'Nota acima do peso' } })).status, 400);
+  assert.equal((await call('/api/grade', { method: 'POST', cookie: admin, body: { sessionId: student.id, questionId: q2id, score: 0.5, reason:'Correção manual' } })).status, 200);
 
   assert.equal((await call('/api/session/submit', { method: 'POST', body: { sessionId: student.id, token: student.token } })).status, 200);
   const report = await fetch(`${base}/api/sessions/${student.id}/report.pdf`, { headers: { cookie: admin } });
@@ -316,6 +318,7 @@ test('backup e restauração: devolve exatamente o estado salvo e guarda cópia 
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-disposition'), /atlas-backup-\d{4}-\d{2}-\d{2}\.atlas/);
   const file = await res.text();
+  assert.equal((await call('/api/restore/verify',{method:'POST',cookie:admin,raw:file})).data.valid,true);
   assert.equal((await call('/api/backup')).status, 401);
 
   await call(`/api/exams/${keep.data.exam.id}`, { method: 'DELETE', cookie: admin });
@@ -333,9 +336,23 @@ test('backup e restauração: devolve exatamente o estado salvo e guarda cópia 
   const malformed = JSON.parse(file);
   malformed.documents = { 'arquivo-invalido.pdf': 'YQ==' };
   assert.equal((await call('/api/restore', { method: 'POST', cookie: admin, raw: JSON.stringify(malformed) })).status, 422);
+  const checksumTampered=JSON.parse(file);checksumTampered.checksum='0'.repeat(64);
+  assert.equal((await call('/api/restore/verify',{method:'POST',cookie:admin,raw:JSON.stringify(checksumTampered)})).status,422);
   assert.equal((await call('/api/exams', { cookie: admin })).status, 200);
   assert.equal((await call('/api/restore', { method: 'POST', raw: file })).status, 401);
   assert.equal((await call('/api/exams', { cookie: admin })).status, 200); // continua funcionando depois das tentativas inválidas
+});
+
+test('restauração seletiva mescla apenas as turmas e provas selecionadas',async()=>{
+  const a=(await call('/api/classes',{method:'POST',cookie:admin,body:{name:'Restaurar A',roster:[{number:'1',name:'Estudante A'}]}})).data.class;
+  const ea=(await call('/api/exams',{method:'POST',cookie:admin,body:{title:'Prova restaurar A',classId:a.id,questions:[{type:'text',text:'A'}]}})).data.exam;
+  const backup=await (await fetch(base+'/api/backup',{headers:{cookie:admin}})).text();
+  const b=(await call('/api/classes',{method:'POST',cookie:admin,body:{name:'Preservar B',roster:[{number:'2',name:'Estudante B'}]}})).data.class;
+  const eb=(await call('/api/exams',{method:'POST',cookie:admin,body:{title:'Prova preservar B',classId:b.id,questions:[{type:'text',text:'B'}]}})).data.exam;
+  const response=await call(`/api/restore/selective?class=${a.id}&exam=${ea.id}`,{method:'POST',cookie:admin,raw:backup});
+  assert.equal(response.status,200);assert.equal(response.data.classes,1);assert.equal(response.data.exams,1);
+  const classes=(await call('/api/classes',{cookie:admin})).data.classes;assert.ok(classes.some(c=>c.id===a.id));assert.ok(classes.some(c=>c.id===b.id));
+  const exams=(await call('/api/exams',{cookie:admin})).data.exams;assert.ok(exams.some(e=>e.id===ea.id));assert.ok(exams.some(e=>e.id===eb.id));
 });
 
 test('diagnóstico de rede: exige PIN e reconhece aparelhos que abriram a página do aluno', async () => {
@@ -343,6 +360,39 @@ test('diagnóstico de rede: exige PIN e reconhece aparelhos que abriram a págin
   const before = (await call('/api/diagnostics', { cookie: admin })).data;
   assert.equal(typeof before.port, 'number');
   assert.ok(Array.isArray(before.interfaces) && Array.isArray(before.urls) && Array.isArray(before.devices));
+  assert.equal(typeof before.disk.available,'boolean');
+  const sanitized=await fetch(base+'/api/diagnostics/report.txt',{headers:{cookie:admin}});
+  assert.equal(sanitized.status,200);assert.match(sanitized.headers.get('content-type'),/text\/plain/);assert.doesNotMatch(await sanitized.text(),/Só depois|Estudante de teste/);
   assert.equal(before.devices.length, 0); // o próprio computador (127.0.0.1) não conta como aparelho de aluno
+});
+
+test('relatórios XLSX/PDF, comparação e correção em lote registram justificativa',async()=>{
+  const turma=(await call('/api/classes',{method:'POST',cookie:admin,body:{name:'Turma relatórios',roster:[{number:'1',name:'Pessoa Relatório'}]}})).data.class;
+  const exam=(await call('/api/exams',{method:'POST',cookie:admin,body:{title:'Avaliação XLSX',classId:turma.id,questions:[{type:'text',text:'Explique o conceito',weight:2,rubric:[{label:'Completo',description:'Explica e exemplifica',score:2},{label:'Parcial',score:1}]}]}})).data.exam;
+  const code=(await call(`/api/exams/${exam.id}/open`,{method:'POST',cookie:admin})).data.code;
+  const session=(await call('/api/session/start',{method:'POST',body:{code,number:'1'}})).data.session;
+  await call('/api/answer',{method:'POST',body:{sessionId:session.id,token:session.token,questionId:exam.questions[0].id,answer:'Resposta longa.'}});
+  await call('/api/session/submit',{method:'POST',body:{sessionId:session.id,token:session.token}});
+  const xlsx=await fetch(`${base}/api/exams/${exam.id}/export.xlsx`,{headers:{cookie:admin}});assert.equal(xlsx.status,200);assert.match(xlsx.headers.get('content-type'),/spreadsheetml/);
+  const workbook=await JSZip.loadAsync(Buffer.from(await xlsx.arrayBuffer()));assert.match(await workbook.file('xl/worksheets/sheet1.xml').async('text'),/Pessoa Relatório/);
+  assert.equal((await fetch(`${base}/api/exams/${exam.id}/report.pdf`,{headers:{cookie:admin}})).status,200);
+  const second=(await call('/api/exams',{method:'POST',cookie:admin,body:{title:'Avaliação comparação',questions:[{type:'choice',text:'Q',options:['A','B'],correct:'A'}]}})).data.exam;
+  const comparison=(await call(`/api/reports/compare?ids=${exam.id},${second.id}`,{cookie:admin})).data;
+  assert.equal(comparison.exams.length,2);assert.equal(comparison.exams[0].average,0);
+  assert.equal((await call('/api/grade/batch',{method:'POST',cookie:admin,body:{items:[{sessionId:session.id,questionId:exam.questions[0].id,score:2}],reason:'Rubrica aplicada'}})).data.updated,1);
+  assert.equal((await call(`/api/exams/${exam.id}/audit`,{cookie:admin})).data.events.some(e=>e.event==='grade_changed'&&e.detail.includes('Rubrica aplicada')),true);
+  assert.equal((await call(`/api/exams/${exam.id}/results`,{cookie:admin})).data.results[0].score,2);
+});
+
+test('política de backup é configurável e anonimização só atinge históricos antigos concluídos',async()=>{
+  const saved=await call('/api/backups/settings',{method:'POST',cookie:admin,body:{intervalMinutes:15,keep:60}});assert.deepEqual(saved.data.settings,{intervalMinutes:15,keep:60});
+  const turma=(await call('/api/classes',{method:'POST',cookie:admin,body:{name:'Privacidade',roster:[{number:'3',name:'Nome Privado de Teste'}]}})).data.class;
+  const exam=(await call('/api/exams',{method:'POST',cookie:admin,body:{title:'Privacidade 2024',classId:turma.id,questions:[{type:'text',text:'Resposta'}]}})).data.exam;
+  const code=(await call(`/api/exams/${exam.id}/open`,{method:'POST',cookie:admin})).data.code;const session=(await call('/api/session/start',{method:'POST',body:{code,number:'3'}})).data.session;
+  await call('/api/answer',{method:'POST',body:{sessionId:session.id,token:session.token,questionId:exam.questions[0].id,answer:'Resposta antiga'}});await call('/api/session/submit',{method:'POST',body:{sessionId:session.id,token:session.token}});
+  const db=new DatabaseSync(path.join(dir,'atlas.sqlite'));db.prepare('UPDATE sessions SET started_at=? WHERE id=?').run('2024-01-01T00:00:00.000Z',session.id);db.close();
+  const preview=await call('/api/privacy/anonymization/preview?before=2025-01-01',{cookie:admin});assert.equal(preview.data.sessions,1);assert.equal(preview.data.students,1);
+  const anonymized=await call('/api/privacy/anonymization',{method:'POST',cookie:admin,body:{before:'2025-01-01'}});assert.equal(anonymized.status,200);
+  const result=(await call(`/api/exams/${exam.id}/results`,{cookie:admin})).data.results[0];assert.equal(result.name,'Estudante anonimizado');assert.match(result.number,/^AN-/);
 });
 

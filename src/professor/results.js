@@ -4,7 +4,7 @@ import { skillLabel } from '../../shared/skills.js';
 
 let root;
 let timer;
-const state = { exams: [], examId: null, data: null, sig: '', open: new Set(), alertsEnabled:false, submittedCounts:new Map() };
+const state = { exams: [], examId: null, data: null, sig: '', open: new Set(), alertsEnabled:false, submittedCounts:new Map(), batchScores:new Map() };
 
 export function mount(el) { root = el; }
 export async function activate() {
@@ -47,7 +47,7 @@ function render() {
       state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:280px', onchange: (e) => { state.examId = e.target.value; state.open.clear(); state.sig = ''; refresh(true); } },
         state.exams.map((e) => h('option', { value: e.id, selected: e.id === state.examId }, e.title)))),
     !d ? h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')
-      : [summary(d), pendingStudents(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? skillInsights(d) : null, d.results.length ? insights(d) : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
+      : [summary(d), pendingStudents(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? skillInsights(d) : null, d.results.length ? insights(d) : null, d.results.length ? missingKeys(d) : null, d.results.length ? batchCorrection(d) : null, d.results.length ? comparePanel() : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
 }
 
 function summary(d) {
@@ -60,7 +60,9 @@ function summary(d) {
         if(Notification.permission!=='granted') { const permission=await Notification.requestPermission(); if(permission!=='granted'){toast('Permissão para avisos não concedida.');return;} }
         state.alertsEnabled=!state.alertsEnabled; render(); toast(state.alertsEnabled?'Avisos de entrega ativados':'Avisos de entrega desativados');
       }},state.alertsEnabled?'Avisos ligados':'Avisar quando entregarem'),
-      h('a', { class: 'btn secondary', href: `/api/exams/${d.exam.id}/export.csv` }, 'Baixar planilha')));
+      h('a', { class: 'btn secondary', href: `/api/exams/${d.exam.id}/export.csv` }, 'Baixar CSV'),
+      h('a', { class: 'btn secondary', href: `/api/exams/${d.exam.id}/export.xlsx` }, 'Baixar XLSX'),
+      h('a', { class: 'btn quiet', href: `/api/exams/${d.exam.id}/report.pdf` }, 'Relatório para impressão')));
 }
 
 function pendingStudents(d) {
@@ -88,13 +90,14 @@ function row(r, exam) {
     h('a', { class: 'btn secondary', href: `/api/sessions/${r.sessionId}/report.pdf` }, 'Baixar relatório individual em PDF'),
     exam.questions.map((q, i) => {
       const answer = r.answers[q.id];
-      const auto = q.type === 'choice' && q.correct;
+      const auto = ['choice','multi','numeric'].includes(q.type) && q.correct !== undefined;
       return h('div', { class: 'answer-block' },
         h('div', { class: 'q' }, `${i + 1}. ${q.text}`),
         h('div', { class: answer ? 'a' : 'a empty' }, answer || 'Sem resposta'),
-        auto ? h('div', { class: 'caption' }, answer === q.correct ? '✓ Correta' : `✗ Correta: ${q.correct}`)
+        auto ? h('div', { class: 'caption' }, feedbackText(q,answer))
           : h('label', { class: 'row caption' }, 'Nota (0 a ' + formatScore(q.weight) + ')',
-            h('input', { class: 'grade-input', type: 'number', min: '0', max: String(q.weight), step: '0.25', value: r.grades[q.id] ?? '', onchange: (e) => grade(r.sessionId, q.id, e.target.value) })));
+            q.rubric?.length ? h('select',{class:'grade-input',value:r.grades[q.id]??'',onchange:(e)=>grade(r.sessionId,q.id,e.target.value)},h('option',{value:''},'Selecione critério'),q.rubric.map((level)=>h('option',{value:String(level.score)},`${level.label} · ${formatScore(level.score)}${level.description?` — ${level.description}`:''}`)))
+            : h('input', { class: 'grade-input', type: 'number', min: '0', max: String(q.weight), step: '0.25', value: r.grades[q.id] ?? '', onchange: (e) => grade(r.sessionId, q.id, e.target.value) })));
     }),
     r.status === 'active' && h('div',{class:'answer-block'},h('button',{class:'btn quiet',onclick:()=>controlSession(r,'pause')},'Pausar este aluno')),
     r.status === 'paused' && h('div',{class:'answer-block'},h('button',{class:'btn secondary',onclick:()=>controlSession(r,'resume')},'Retomar este aluno')),
@@ -139,9 +142,61 @@ function skillInsights(d) {
 }
 
 async function grade(sessionId, questionId, value) {
-  try { await api('/api/grade', { method: 'POST', body: { sessionId, questionId, score: value === '' ? null : value } }); toast('Nota salva'); }
+  const reason=prompt('Informe o motivo da alteração da nota (ficará no histórico).');
+  if(!reason||reason.trim().length<4){toast('Informe um motivo com pelo menos 4 caracteres.');refresh(true);return;}
+  try { await api('/api/grade', { method: 'POST', body: { sessionId, questionId, score: value === '' ? null : value,reason } }); toast('Nota salva e registrada'); }
   catch (error) { toast(error.message); }
   refresh(true);
+}
+
+function feedbackText(q,answer){
+  const correct=q.type==='multi'?Array.isArray(answer)&&answer.length===q.correct.length&&[...answer].sort().every((x,i)=>x===[...q.correct].sort()[i]):q.type==='numeric'?Math.abs(Number(String(answer).replace(',','.'))-Number(q.correct))<=(q.tolerance||0):answer===q.correct;
+  return correct?`✓ Correta · ${formatScore(q.weight)}`:`✗ Gabarito: ${Array.isArray(q.correct)?q.correct.join(', '):q.correct}`;
+}
+
+function missingKeys(d){
+  const missing=d.exam.questions.map((q,index)=>({q,index})).filter(({q})=>!(['choice','multi','numeric'].includes(q.type)&&q.correct!==undefined));
+  if(!missing.length)return null;
+  return h('details',{class:'card'},h('summary',{class:'headline'},`${missing.length} questão(ões) para correção ou gabarito`),h('ul',{class:'sub'},missing.map(({q,index})=>h('li',{},`Q${index+1}: ${q.text} · ${d.results.filter(r=>r.answers[q.id]!==undefined&&String(r.answers[q.id]).trim()!=='').length} resposta(s)`))));
+}
+
+function batchCorrection(d){
+  const pending=[];
+  for(const question of d.exam.questions){
+    if(['choice','multi','numeric'].includes(question.type)&&question.correct!==undefined)continue;
+    for(const result of d.results){
+      const answer=result.answers[question.id];
+      if(answer===undefined||answer===null||String(answer).trim()===''||result.grades[question.id]!==undefined)continue;
+      pending.push({question,result,answer});
+    }
+  }
+  if(!pending.length)return null;
+  return h('details',{class:'card stack-s'},h('summary',{class:'headline'},`Correção manual em lote · ${pending.length} pendente(s)`),
+    h('p',{class:'caption'},'Preencha as notas de várias respostas e salve tudo com um único motivo de correção.'),
+    h('div',{class:'list'},pending.map(({question,result,answer})=>{
+      const key=`${result.sessionId}:${question.id}`;
+      return h('div',{class:'list-row'},h('span',{class:'grow'},h('strong',{},`${result.name} · Q${d.exam.questions.indexOf(question)+1}`),h('div',{class:'caption'},Array.isArray(answer)?answer.join(', '):answer)),question.rubric?.length?h('select',{value:state.batchScores.get(key)??'',onchange:(e)=>state.batchScores.set(key,e.target.value)},h('option',{value:''},'Critério'),question.rubric.map(level=>h('option',{value:String(level.score)},`${level.label} · ${formatScore(level.score)}`))):h('input',{type:'number',min:0,max:question.weight,step:'0.25',value:state.batchScores.get(key)??'',placeholder:`0–${question.weight}`,style:'max-width:120px',oninput:(e)=>state.batchScores.set(key,e.target.value)}));
+    })),h('button',{class:'btn',onclick:async()=>{
+      const items=pending.filter(({question,result})=>state.batchScores.has(`${result.sessionId}:${question.id}`)&&state.batchScores.get(`${result.sessionId}:${question.id}`)!=='').map(({question,result})=>({sessionId:result.sessionId,questionId:question.id,score:state.batchScores.get(`${result.sessionId}:${question.id}`)}));
+      if(!items.length){toast('Preencha ao menos uma nota.');return;}
+      const reason=prompt('Motivo desta correção em lote (mínimo 4 caracteres).');if(!reason||reason.trim().length<4)return;
+      try{await api('/api/grade/batch',{method:'POST',body:{items,reason}});for(const item of items)state.batchScores.delete(`${item.sessionId}:${item.questionId}`);toast(`${items.length} nota(s) registradas no histórico.`);refresh(true);}catch(error){toast(error.message);}
+    }},'Salvar correções preenchidas'));
+}
+
+function comparePanel(){
+  const other=state.exams.filter((exam)=>exam.id!==state.examId);
+  if(!other.length)return null;
+  return h('details',{class:'card stack-s'},h('summary',{class:'headline'},'Comparar avaliações'),h('div',{class:'row'},
+    h('label',{class:'field'},h('span',{},'De'),h('input',{id:'compare-from',type:'date'})),
+    h('label',{class:'field'},h('span',{},'Até'),h('input',{id:'compare-to',type:'date'})),
+    h('label',{class:'field grow'},h('span',{},'Comparar esta prova com'),h('select',{id:'compare-exam'},h('option',{value:''},'Selecione uma avaliação'),other.map((exam)=>h('option',{value:exam.id},exam.title)))),
+    h('button',{class:'btn secondary',onclick:async()=>{
+      const selected=root.querySelector('#compare-exam').value;if(!selected){toast('Selecione a segunda avaliação.');return;}
+      const params=new URLSearchParams({ids:[state.examId,selected].join(',')});const from=root.querySelector('#compare-from').value;const to=root.querySelector('#compare-to').value;if(from)params.set('from',from);if(to)params.set('to',to);
+      try{const report=await api(`/api/reports/compare?${params}`);const target=root.querySelector('#compare-output');clear(target,...report.exams.map((item)=>h('div',{class:'notice'},`${item.title} · ${item.className||'Turma não informada'} · ${item.sent}/${item.students} enviados no período · média ${item.average===null?'—':`${item.average}%`}`)));}catch(error){toast(error.message);}
+    }},'Comparar')),
+    h('p',{class:'caption'},'Os filtros de data consideram a entrega das provas. O Atlas mostra as médias das duas avaliações selecionadas.'),h('div',{id:'compare-output',class:'stack-s','aria-live':'polite'}));
 }
 
 function stats(d) {
@@ -162,11 +217,13 @@ function stats(d) {
 
 // Acerto por questão (só para as que têm gabarito): mostra o que a turma não aprendeu.
 function insights(d) {
-  const rows = d.exam.questions.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'choice' && q.correct).map(({ q, i }) => {
-    const given = d.results.map((r) => r.answers[q.id]).filter(Boolean);
-    const right = given.filter((a) => a === q.correct).length;
+  const isObjective=(q)=>['choice','multi','numeric'].includes(q.type)&&q.correct!==undefined;
+  const rows = d.exam.questions.map((q, i) => ({ q, i })).filter(({ q }) => isObjective(q)).map(({ q, i }) => {
+    const given = d.results.map((r) => r.answers[q.id]).filter((answer)=>answer!==undefined&&answer!==null&&String(answer).trim()!=='');
+    const isCorrect=(a)=>q.type==='choice'?a===q.correct:q.type==='numeric'?Number.isFinite(Number(String(a).replace(',','.')))&&Math.abs(Number(String(a).replace(',','.'))-Number(q.correct))<=(q.tolerance||0):(()=>{let v=a;if(typeof v==='string'){try{v=JSON.parse(v)}catch{v=[]}}return Array.isArray(v)&&v.length===q.correct.length&&[...v].sort().every((x,j)=>x===[...q.correct].sort()[j]);})();
+    const right = given.filter(isCorrect).length;
     const wrong = {};
-    for (const a of given) if (a !== q.correct) wrong[a] = (wrong[a] || 0) + 1;
+    for (const a of given) if (!isCorrect(a)) {const values=Array.isArray(a)?a:[a];for(const value of values){const label=String(value);wrong[label]=(wrong[label]||0)+1;}}
     const top = Object.entries(wrong).sort((a, b) => b[1] - a[1])[0];
     return { i, q, total: given.length, pct: given.length ? Math.round((right / given.length) * 100) : null, top };
   });
@@ -176,6 +233,6 @@ function insights(d) {
     h('div', { class: 'stack-s', style: 'margin-top:16px' }, rows.map(({ i, q, total, pct, top }) => h('div', { class: 'bar-row' },
       h('div', { class: 'row between caption' }, h('span', {}, `Q${i + 1} · ${q.text.length > 60 ? q.text.slice(0, 60) + '…' : q.text}`), h('span', { class: 'score' }, pct === null ? '—' : `${pct}%`)),
       h('div', { class: 'progress' }, h('div', { style: `width:${pct ?? 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })),
-      top && pct !== null && pct < 70 && h('div', { class: 'caption' }, `Erro mais comum: “${top[0]}” (${top[1]})`)))));
+      top && pct !== null && pct < 70 && h('div', { class: 'caption' }, `Resposta incorreta mais comum: “${top[0]}” (${top[1]})`)))));
 }
 

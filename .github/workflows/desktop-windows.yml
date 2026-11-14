@@ -109,5 +109,5 @@ jobs:
           }
           $version = $Matches[1]
           $tag = "v$version"
-          gh release create $tag $installer.FullName "$($installer.FullName).blockmap" "release-desktop/beta.yml" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "Atlas $version para Windows" --notes "Turmas e históricos separados; importação do Diário SEDUC-TO; extração revisável de questões em PDFs textuais; banco de questões; descritores SAEB por etapa; feedback imediato; relatórios individuais em PDF; temas claro/escuro e atualização dentro do app."
+          gh release create $tag $installer.FullName "$($installer.FullName).blockmap" "release-desktop/beta.yml" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "Atlas $version para Windows" --notes "Correção automática e em lote com rubricas; relatórios individuais e da turma em PDF e exportação XLSX; análise de alternativas e comparação por período; histórico de notas; backup configurável, verificado e com restauração seletiva; anonimização assistida; diagnóstico sem dados de alunos; atualização beta/estável; tema claro/escuro inspirado no Material 3 Expressive."
 

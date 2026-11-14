@@ -10,13 +10,22 @@ const { autoUpdater } = updater;
 
 let atlas;
 let window;
+let updateChannel='beta';
+let updateChannelFile='';
+
+function useUpdateChannel(channel){
+  updateChannel=channel==='stable'?'stable':'beta';
+  autoUpdater.channel=updateChannel==='stable'?'latest':'beta';
+  autoUpdater.allowPrerelease=updateChannel==='beta';
+  if(updateChannelFile)fs.writeFileSync(updateChannelFile,updateChannel+'\n',{encoding:'utf8',mode:0o600});
+}
 
 async function checkUpdates() {
   if (!app.isPackaged) {
     await dialog.showMessageBox(window, { type: 'info', title: 'Atualizações', message: 'A busca de atualizações funciona na versão instalada do Atlas.' });
     return;
   }
-  try { await autoUpdater.checkForUpdates(); }
+  try { useUpdateChannel(updateChannel); await autoUpdater.checkForUpdates(); }
   catch (error) {
     await dialog.showMessageBox(window, { type: 'warning', title: 'Não foi possível buscar atualizações', message: 'Confira sua conexão com a Internet e tente novamente.', detail: error.message });
   }
@@ -58,6 +67,9 @@ function getPin(dataDir) {
 async function start() {
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
+  updateChannelFile=path.join(app.getPath('userData'),'update-channel.txt');
+  try{updateChannel=fs.readFileSync(updateChannelFile,'utf8').trim()==='stable'?'stable':'beta';}catch{}
+  useUpdateChannel(updateChannel);
   const pin = getPin(dataDir);
   atlas = createApp({ dataDir, pin });
   let listening = false;
@@ -94,6 +106,10 @@ async function start() {
       { label: 'Mostrar PIN do professor', click: () => dialog.showMessageBox(window, { type: 'info', title: 'PIN do professor', message: 'Seu PIN: ' + pin }) },
       { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
       { label: 'Buscar atualizações', accelerator: 'Alt+U', click: () => checkUpdates() },
+      { label: 'Canal de atualizações', submenu: [
+        {label:'Pré-lançamentos beta',type:'radio',checked:updateChannel==='beta',click:()=>{useUpdateChannel('beta');dialog.showMessageBox(window,{type:'info',title:'Canal beta selecionado',message:'O Atlas poderá oferecer versões de teste. Você pode voltar ao canal estável neste menu.'});}},
+        {label:'Somente versões estáveis',type:'radio',checked:updateChannel==='stable',click:()=>{useUpdateChannel('stable');dialog.showMessageBox(window,{type:'info',title:'Canal estável selecionado',message:'O Atlas só buscará versões marcadas como estáveis.'});}},
+      ]},
       { role: 'quit', label: 'Sair' },
     ] },
   ]));

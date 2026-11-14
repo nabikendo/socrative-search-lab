@@ -1,51 +1,75 @@
-/* Atlas — sistema de design minimalista. Sem fontes externas: funciona offline. */
+/* Atlas — Material 3 Expressive inspirado, sem fontes externas: funciona offline. */
 :root {
   color-scheme: light;
-  --bg: #f5f5f7;
-  --surface: #ffffff;
-  --text: #1d1d1f;
-  --text-2: #6e6e73;
-  --text-3: #8e8e93;
-  --line: rgba(0, 0, 0, 0.1);
-  --fill: rgba(120, 120, 128, 0.12);
-  --accent: #0071e3;
-  --accent-press: #0062c4;
-  --ok: #1a8f3c;
-  --warn: #b45f06;
-  --danger: #d70015;
-  --radius: 18px;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --md-primary: #6750a4;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #eaddff;
+  --md-on-primary-container: #21005d;
+  --md-secondary-container: #e8def8;
+  --md-surface: #fef7ff;
+  --md-surface-container: #f3edf7;
+  --md-on-surface: #1d1b20;
+  --bg: var(--md-surface-container);
+  --surface: var(--md-surface);
+  --text: var(--md-on-surface);
+  --text-2: #49454f;
+  --text-3: #79747e;
+  --line: #cac4d0;
+  --fill: var(--md-secondary-container);
+  --accent: var(--md-primary);
+  --accent-press: #4f378b;
+  --ok: #386a20;
+  --warn: #7d5700;
+  --danger: #ba1a1a;
+  --radius: 24px;
+  --font: Roboto, "Google Sans", "Segoe UI", Arial, sans-serif;
 }
 :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #000000;
-    --surface: #1c1c1e;
-    --text: #f5f5f7;
-    --text-2: #a1a1a6;
-    --text-3: #6e6e73;
-    --line: rgba(255, 255, 255, 0.14);
-    --fill: rgba(120, 120, 128, 0.28);
-    --accent: #2997ff;
-    --accent-press: #5eb0ff;
-    --ok: #30d158;
-    --warn: #ff9f0a;
-    --danger: #ff453a;
+    --md-primary: #d0bcff;
+    --md-on-primary: #381e72;
+    --md-primary-container: #4f378b;
+    --md-on-primary-container: #eaddff;
+    --md-secondary-container: #4a4458;
+    --md-surface: #141218;
+    --md-surface-container: #211f26;
+    --md-on-surface: #e6e0e9;
+    --bg: var(--md-surface-container);
+    --surface: var(--md-surface);
+    --text: var(--md-on-surface);
+    --text-2: #cac4d0;
+    --text-3: #938f99;
+    --line: #49454f;
+    --fill: var(--md-secondary-container);
+    --accent: var(--md-primary);
+    --accent-press: #eaddff;
+    --ok: #a8d08d;
+    --warn: #f2c148;
+    --danger: #ffb4ab;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg: #000000;
-    --surface: #1c1c1e;
-    --text: #f5f5f7;
-    --text-2: #a1a1a6;
-    --text-3: #6e6e73;
-    --line: rgba(255, 255, 255, 0.14);
-    --fill: rgba(120, 120, 128, 0.28);
-    --accent: #2997ff;
-    --accent-press: #5eb0ff;
-    --ok: #30d158;
-    --warn: #ff9f0a;
-    --danger: #ff453a;
+    --md-primary: #d0bcff;
+    --md-on-primary: #381e72;
+    --md-primary-container: #4f378b;
+    --md-on-primary-container: #eaddff;
+    --md-secondary-container: #4a4458;
+    --md-surface: #141218;
+    --md-surface-container: #211f26;
+    --md-on-surface: #e6e0e9;
+    --bg: var(--md-surface-container);
+    --surface: var(--md-surface);
+    --text: var(--md-on-surface);
+    --text-2: #cac4d0;
+    --text-3: #938f99;
+    --line: #49454f;
+    --fill: var(--md-secondary-container);
+    --accent: var(--md-primary);
+    --accent-press: #eaddff;
+    --ok: #a8d08d;
+    --warn: #f2c148;
+    --danger: #ffb4ab;
   }
 }
 
@@ -101,7 +125,7 @@ a:hover { text-decoration: underline; }
 /* ---------- botões */
 .btn {
   appearance: none; border: 0; cursor: pointer; font: inherit; font-size: 15px; font-weight: 500;
-  padding: 10px 20px; border-radius: 980px; background: var(--accent); color: #fff;
+  padding: 10px 20px; border-radius: 14px; background: var(--accent); color: var(--md-on-primary);
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px;
   transition: background 0.15s, opacity 0.15s, transform 0.1s;
 }

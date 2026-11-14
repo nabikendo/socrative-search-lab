@@ -5,6 +5,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { readSheet } from 'read-excel-file/node';
+import JSZip from 'jszip';
 import { openStore, BackupError } from './lib/store.mjs';
 import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs';
 import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
@@ -120,6 +121,21 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       rows.push([r.number, r.name, r.className, r.status === 'submitted' ? 'enviada' : 'em andamento', r.startedAt, r.submittedAt || '', decimal(r.score), decimal(r.max), r.pending, ...exam.questions.map((q) => r.answers[q.id] || '')]);
     }
     return '\uFEFF' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
+  }
+
+  function examXlsx(exam) {
+    const results=resultsFor(exam);
+    const rows=[['Número','Estudante','Turma','Situação','Início','Entrega','Nota','Máximo','Pendentes',...exam.questions.map((q,i)=>`Q${i+1} — ${q.text}`)],...results.map(r=>[r.number,r.name,r.className,r.status==='submitted'?'Entregue':r.status==='paused'?'Pausada':'Em andamento',r.startedAt,r.submittedAt||'',r.score,r.max,r.pending,...exam.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join(', '):r.answers[q.id]||'')])];
+    const xml=(value)=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');
+    const column=(index)=>{let name='';for(index++;index;index=Math.floor((index-1)/26))name=String.fromCharCode(65+(index-1)%26)+name;return name;};
+    const sheet=rows.map((row,r)=>`<row r="${r+1}">${row.map((value,c)=>{const ref=`${column(c)}${r+1}`;if(typeof value==='number'&&Number.isFinite(value))return `<c r="${ref}"><v>${value}</v></c>`;return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;}).join('')}</row>`).join('');
+    const zip=new JSZip();
+    zip.file('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>');
+    zip.file('_rels/.rels','<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+    zip.file('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Resultados" sheetId="1" r:id="rId1"/></sheets></workbook>');
+    zip.file('xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+    zip.file('xl/worksheets/sheet1.xml',`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheet}</sheetData></worksheet>`);
+    return zip.generateAsync({type:'nodebuffer',compression:'DEFLATE'});
   }
 
   function simplePdf(lines) {
@@ -429,8 +445,8 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     store.deleteExam(params.id);
     return { ok: true };
   });
-  route('POST', '/api/exams/:id/open', { admin: true }, ({ params }) => { needExam(params.id); return { ok: true, code: store.openExam(params.id) }; });
-  route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { needExam(params.id); store.closeExam(params.id); return { ok: true }; });
+  route('POST', '/api/exams/:id/open', { admin: true }, ({ params }) => { const exam=needExam(params.id);const code=store.openExam(params.id);store.addAudit('exam_opened',exam.id,'Prova aberta para os alunos.');return { ok: true, code }; });
+  route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { const exam=needExam(params.id);store.closeExam(params.id);store.addAudit('exam_closed',exam.id,'Prova encerrada pelo professor.');return { ok: true }; });
   route('POST', '/api/exams/:id/pause', { admin:true }, ({ params }) => {
     const exam=needExam(params.id);
     if (exam.status!=='open') throw new HttpError(409,'exam_not_open');
@@ -463,6 +479,13 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const participants = exam.classId ? store.classRoster(exam.classId) : store.getRoster();
     return { exam: { id: exam.id, title: exam.title, status: exam.status, questions: exam.questions }, results: resultsFor(exam), participants };
   });
+  route('GET', '/api/reports/compare', {admin:true}, ({url}) => {
+    const ids=[...new Set(String(url.searchParams.get('ids')||'').split(',').filter(Boolean))].slice(0,2);
+    if(ids.length!==2)throw new HttpError(400,'two_exams_required','Selecione duas provas para comparar.');
+    const from=url.searchParams.get('from')?Date.parse(`${url.searchParams.get('from')}T00:00:00Z`):null;const to=url.searchParams.get('to')?Date.parse(`${url.searchParams.get('to')}T23:59:59.999Z`):null;
+    if((from!==null&&!Number.isFinite(from))||(to!==null&&!Number.isFinite(to))||(from!==null&&to!==null&&from>to))throw new HttpError(400,'invalid_report_period','Confira o período escolhido.');
+    return {exams:ids.map((id)=>{const exam=needExam(id);const results=resultsFor(exam);const submitted=results.filter((r)=>r.status==='submitted'&&(!from||Date.parse(r.submittedAt)>=from)&&(!to||Date.parse(r.submittedAt)<=to));const average=submitted.length?Math.round(submitted.reduce((sum,r)=>sum+(r.max?r.score/r.max:0),0)/submitted.length*100):null;const students=exam.classId?store.classRoster(exam.classId).length:store.getRoster().length;return {id,title:exam.title,className:results[0]?.className||'',createdAt:exam.createdAt,sent:submitted.length,students,average};})};
+  });
   route('GET', '/api/exams/:id/projector', { admin: true }, ({ params }) => {
     const exam = needExam(params.id);
     const results = resultsFor(exam);
@@ -486,6 +509,15 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     res.end(examCsv(exam));
     return null;
   });
+  route('GET','/api/exams/:id/export.xlsx',{admin:true},async({res,params})=>{
+    const exam=needExam(params.id);const slug=exam.title.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w]+/g,'-').toLowerCase()||'prova';const bytes=await examXlsx(exam);
+    res.writeHead(200,{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','content-disposition':`attachment; filename="${slug}.xlsx"`,'content-length':bytes.length,'cache-control':'no-store'});res.end(bytes);return null;
+  });
+  route('GET','/api/exams/:id/report.pdf',{admin:true},({res,params})=>{
+    const exam=needExam(params.id);const results=resultsFor(exam);const submitted=results.filter((r)=>r.status==='submitted');const average=submitted.length?submitted.reduce((sum,r)=>sum+(r.max?r.score/r.max:0),0)/submitted.length*100:null;
+    const lines=['ATLAS - RELATORIO DA TURMA',`Prova: ${exam.title}`,`Turma: ${results[0]?.className||'Nao informada'}`,`Criada em: ${exam.createdAt||'Nao informada'}`,`Entregues: ${submitted.length}`,`Estudantes inscritos: ${exam.classId?store.classRoster(exam.classId).length:store.getRoster().length}`,`Media da turma: ${average===null?'Sem envios':`${average.toFixed(1)}%`}`,'','RESULTADOS',...results.map((r)=>`${r.number} ${r.name} - ${r.status==='submitted'?'Entregue':'Pendente'} - ${r.score}/${r.max} - ${r.pending} pendente(s)`)];
+    const pdf=simplePdf(lines);res.writeHead(200,{'content-type':'application/pdf','content-length':pdf.length,'content-disposition':`attachment; filename="atlas-relatorio-turma-${exam.id}.pdf"`,'cache-control':'no-store'});res.end(pdf);return null;
+  });
   route('GET', '/api/sessions/:id/report.pdf', { admin: true }, ({ res, params }) => {
     const session = needSession(params.id);
     const exam = needExam(session.examId);
@@ -505,11 +537,22 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const session = needSession(String(input.sessionId || ''));
     const question = needExam(session.examId).questions.find((x) => x.id === String(input.questionId));
     if (!question) throw new HttpError(400, 'unknown_question');
-    if (input.score === null || input.score === '') { store.setGrade(session.id, question.id, null); return { ok: true }; }
+    const reason=String(input.reason||'').trim().slice(0,500);
+    if(reason.length<4)throw new HttpError(400,'grade_reason_required','Informe o motivo da alteração da nota (mínimo 4 caracteres).');
+    if (input.score === null || input.score === '') { store.setGrade(session.id, question.id, null);store.addAudit('grade_cleared',session.examId,`Aluno ${session.number}, questão ${question.id}: ${reason}`);return { ok: true }; }
     const score = Number(input.score);
     if (!Number.isFinite(score) || score < 0 || score > question.weight) throw new HttpError(400, 'invalid_score', `A nota deve estar entre 0 e ${question.weight}.`);
     store.setGrade(session.id, question.id, score);
+    store.addAudit('grade_changed',session.examId,`Aluno ${session.number}, questão ${question.id}, nota ${score}/${question.weight}: ${reason}`);
     return { ok: true };
+  });
+  route('POST','/api/grade/batch',{admin:true},async({req})=>{
+    const input=await readJson(req);const reason=String(input.reason||'').trim().slice(0,500);const items=Array.isArray(input.items)?input.items:[];
+    if(reason.length<4)throw new HttpError(400,'grade_reason_required','Informe um motivo para a correção em lote.');
+    if(!items.length||items.length>500)throw new HttpError(400,'invalid_batch','Selecione de 1 a 500 notas.');
+    const validated=items.map((item)=>{const session=needSession(String(item.sessionId||''));const question=needExam(session.examId).questions.find((q)=>q.id===String(item.questionId));const score=Number(item.score);if(!question||!Number.isFinite(score)||score<0||score>question.weight)throw new HttpError(400,'invalid_batch_score','Confira os itens e as notas informadas.');return {session,question,score};});
+    for(const {session,question,score} of validated){store.setGrade(session.id,question.id,score);store.addAudit('grade_changed',session.examId,`Correção em lote · aluno ${session.number}, questão ${question.id}, nota ${score}/${question.weight}: ${reason}`);}
+    return {ok:true,updated:validated.length};
   });
   route('POST', '/api/sessions/:id/reopen', { admin: true }, async ({ req, params }) => {
     const session = needSession(params.id);
@@ -578,10 +621,22 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const seen = [...devices].filter(([, at]) => t - at < 60_000).map(([ip, at]) => ({ ip, secondsAgo: Math.round((t - at) / 1000) })).sort((a, b) => a.secondsAgo - b.secondsAgo);
     for (const [ip, at] of devices) if (t - at > 3600_000) devices.delete(ip);
     const classStudents = store.listClasses().reduce((sum, c) => sum + c.students, 0);
-    return { port, interfaces, aliases, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length + classStudents };
+    let disk={available:false};
+    try{const stat=fs.statfsSync(dataDir);disk={available:true,freeBytes:stat.bavail*stat.bsize,totalBytes:stat.blocks*stat.bsize};}catch{}
+    return { port, interfaces, aliases, urls, devices: seen, examOpen: !!store.getOpenExam(), students: store.getRoster().length + classStudents,disk };
+  });
+  route('GET','/api/diagnostics/report.txt',{admin:true},({req,res})=>{
+    const port=req.socket.localPort;let disk='Indisponível';try{const stat=fs.statfsSync(dataDir);disk=`${(stat.bavail*stat.bsize/1024**3).toFixed(1)} GB livres de ${(stat.blocks*stat.bsize/1024**3).toFixed(1)} GB`;}catch{}
+    const lines=['Atlas - diagnóstico sem dados de estudantes',`Versão: ${JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version}`,`Node: ${process.versions.node}`,`Electron: ${process.versions.electron||'servidor independente'}`,`Sistema: ${process.platform} ${process.arch}`,`Porta local: ${port}`,`Interface IPv4 disponível: ${Object.values(os.networkInterfaces()).flat().filter(n=>n?.family==='IPv4'&&!n.internal).length}`,`Espaço livre na unidade de dados: ${disk}`,`Servidor HTTP: ativo`];
+    res.writeHead(200,{'content-type':'text/plain; charset=utf-8','content-disposition':'attachment; filename="atlas-diagnostico.txt"','cache-control':'no-store'});res.end(lines.join('\n'));return null;
   });
 
   // backup manual: um único arquivo .atlas com banco e anexos
+  route('GET','/api/backups/settings',{admin:true},()=>store.getBackupSettings());
+  route('POST','/api/backups/settings',{admin:true},async({req})=>{const input=await readJson(req);const settings=store.setBackupSettings(input);store.addAudit('backup_policy_changed','settings',`Intervalo ${settings.intervalMinutes} min; manter ${settings.keep} cópias.`);return {ok:true,settings};});
+  route('GET','/api/audit',{admin:true},({url})=>({events:store.listAuditAll(Number(url.searchParams.get('limit'))||100)}));
+  route('GET','/api/privacy/anonymization/preview',{admin:true},({url})=>{const before=String(url.searchParams.get('before')||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(before)||Date.parse(`${before}T00:00:00Z`)>=Date.now())throw new HttpError(400,'invalid_retention_date','Escolha uma data passada.');return store.previewAnonymization(`${before}T00:00:00.000Z`);});
+  route('POST','/api/privacy/anonymization',{admin:true},async({req})=>{const input=await readJson(req);const before=String(input.before||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(before)||Date.parse(`${before}T00:00:00Z`)>=Date.now())throw new HttpError(400,'invalid_retention_date','Escolha uma data passada.');const result=store.anonymizeBefore(`${before}T00:00:00.000Z`);store.addAudit('student_data_anonymized','privacy',`${result.students} estudantes e ${result.sessions} sessões anteriores a ${before}.`);return {ok:true,...result};});
   route('GET', '/api/backup', { admin: true }, ({ res }) => {
     const day = new Date().toISOString().slice(0, 10);
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="atlas-backup-${day}.atlas"`, 'cache-control': 'no-store' });
@@ -594,6 +649,14 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     try { input = JSON.parse(raw.toString('utf8')); } catch { throw new HttpError(422, 'invalid_backup', 'Este arquivo não é um backup válido do Atlas.'); }
     try { return { ok: true, ...store.restoreBackup(input) }; }
     catch (error) { if (error instanceof BackupError) throw new HttpError(422, 'invalid_backup', error.message); throw error; }
+  });
+  route('POST','/api/restore/verify',{admin:true},async({req})=>{
+    const raw=await readBody(req,400_000_000);let input;try{input=JSON.parse(raw.toString('utf8'));}catch{throw new HttpError(422,'invalid_backup','Este arquivo não é um backup válido do Atlas.');}
+    try{return store.verifyBackup(input);}catch(error){if(error instanceof BackupError)throw new HttpError(422,'invalid_backup',error.message);throw error;}
+  });
+  route('POST','/api/restore/selective',{admin:true},async({req,url})=>{
+    const raw=await readBody(req,400_000_000);let input;try{input=JSON.parse(raw.toString('utf8'));}catch{throw new HttpError(422,'invalid_backup','Este arquivo não é um backup válido do Atlas.');}
+    try{return {ok:true,...store.restoreSelected(input,{classIds:url.searchParams.getAll('class'),examIds:url.searchParams.getAll('exam')})};}catch(error){if(error instanceof BackupError)throw new HttpError(422,'invalid_backup',error.message);throw error;}
   });
 
   // ---------- arquivos estáticos

@@ -34,14 +34,14 @@ window.addEventListener('atlas:add-bank-question', async (event) => {
 const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, document: null, locked: false, shuffle: false,
   pdfOnly: true, classId: state.classes[0]?.id || null, feedback: false, questions: [newQuestion('choice')] });
 function newQuestion(type) {
-  return { id: questionId(), type, text: '', options: ['choice','multi'].includes(type) ? ['', ''] : [], correctIndex: null, correctIndexes:[], numericAnswer:'', tolerance:0, image:'', imageAlt:'', topic:'',difficulty:'',weight: 1 };
+  return { id: questionId(), type, text: '', options: ['choice','multi'].includes(type) ? ['', ''] : [], correctIndex: null, correctIndexes:[], numericAnswer:'', tolerance:0, image:'', imageAlt:'', topic:'',difficulty:'',rubric:[],weight: 1 };
 }
 const fromServer = (exam, locked) => ({ ...exam, locked, pdfOnly: !exam.questions.length, questions: exam.questions.map((q) => ({ ...q, correctIndex: typeof q.correct==='string'&&q.options?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((answer)=>q.options.indexOf(answer)).filter((i)=>i>=0):[], numericAnswer:q.type==='numeric'?q.correct:'', tolerance:q.tolerance ?? 0 })) });
 function payload() {
   return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, classId: state.model.classId || null, feedback: !!state.model.feedback, questions: state.model.pdfOnly ? [] : state.model.questions.map((q) => {
     const options = q.options.map((o) => o.trim());
     const correct = q.type === 'choice' && q.correctIndex !== null ? options[q.correctIndex] : q.type==='multi' ? (q.correctIndexes||[]).map((i)=>options[i]).filter(Boolean) : q.type==='numeric' && q.numericAnswer!=='' ? Number(String(q.numericAnswer).replace(',','.')) : undefined;
-    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct!==undefined&&correct!=='' ? { correct } : {}), ...(q.type==='numeric'?{tolerance:Number(q.tolerance)||0}:{}), image:q.image||'',imageAlt:q.imageAlt||'',topic:q.topic||'',difficulty:q.difficulty||'',weight: Number(q.weight) || 1, skill: q.skill || '', explanation: q.explanation || '' };
+    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct!==undefined&&correct!=='' ? { correct } : {}), ...(q.type==='numeric'?{tolerance:Number(q.tolerance)||0}:{}), image:q.image||'',imageAlt:q.imageAlt||'',topic:q.topic||'',difficulty:q.difficulty||'',rubric:q.rubric||[],weight: Number(q.weight) || 1, skill: q.skill || '', explanation: q.explanation || '' };
   }) };
 }
 
@@ -210,6 +210,9 @@ function questionCard(q, index) {
       h('label',{class:'field grow'},h('span',{},'Conteúdo'),h('input',{value:q.topic||'',maxLength:80,disabled:lock,placeholder:'Ex.: frações, geometria',oninput:(e)=>{q.topic=e.target.value;touch();}})),
       h('label',{class:'field'},h('span',{},'Dificuldade'),h('select',{value:q.difficulty||'',disabled:lock,onchange:(e)=>{q.difficulty=e.target.value;touch();}},h('option',{value:''},'Não definida'),h('option',{value:'easy'},'Fácil'),h('option',{value:'medium'},'Média'),h('option',{value:'hard'},'Difícil')))),
     h('label', { class: 'field' }, h('span', {}, 'Explicação da resposta correta'), h('textarea', { value: q.explanation || '', disabled: lock, placeholder: 'Opcional: será exibida ao estudante se o feedback estiver ativado.', oninput: (e) => { q.explanation = e.target.value; touch(); } })),
+    h('details',{class:'rubric-editor'},h('summary',{class:'caption'},`Rubrica de correção${q.rubric?.length?` · ${q.rubric.length} níveis`:''}`),h('div',{class:'stack-s',style:'margin-top:12px'},
+      (q.rubric||[]).map((level,index)=>h('div',{class:'row'},h('input',{value:level.label,disabled:lock,maxLength:80,placeholder:`Nível ${index+1}`,oninput:(e)=>{level.label=e.target.value;touch();}}),h('input',{type:'number',value:level.score,disabled:lock,min:0,max:q.weight,step:'0.25','aria-label':'Nota deste nível',oninput:(e)=>{level.score=Number(e.target.value);touch();}}),h('input',{value:level.description||'',disabled:lock,maxLength:240,placeholder:'Critério observado (opcional)',oninput:(e)=>{level.description=e.target.value;touch();}}),!lock&&h('button',{class:'btn quiet',type:'button','aria-label':'Remover nível da rubrica',onclick:()=>{q.rubric.splice(index,1);touch();render();}},'Remover'))),
+       !lock&&(q.rubric||[]).length<8&&h('button',{class:'btn quiet',type:'button',onclick:()=>{q.rubric=q.rubric||[];q.rubric.push({label:`Nível ${q.rubric.length+1}`,score:0,description:''});touch();render();}},'Adicionar nível de desempenho'))),
     !lock && h('button', { class: 'btn quiet', type: 'button', onclick: guard(async () => {
       const raw = payload().questions[index];
       if (!raw.text?.trim()) throw new Error('Escreva o enunciado antes de salvar no banco de questões.');

@@ -40,7 +40,10 @@ export function normalizeQuestions(input) {
     const difficulty = ['easy','medium','hard'].includes(raw?.difficulty) ? raw.difficulty : undefined;
     const image = typeof raw?.image === 'string' && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(raw.image) && raw.image.length <= 300_000 ? raw.image : undefined;
     const imageAlt = text(raw?.imageAlt, 200);
-    const metadata = { ...(SAEB_SKILL_IDS.has(skill) || LEGACY_SKILL_IDS.has(skill) ? { skill } : {}), ...(explanation ? { explanation } : {}), ...(topic ? { topic } : {}), ...(difficulty ? { difficulty } : {}), ...(image ? { image, imageAlt } : {}) };
+    const rubric = Array.isArray(raw?.rubric) ? raw.rubric.slice(0, 8).map((level) => ({
+      label: text(level?.label, 80), description: text(level?.description, 240), score: Number(level?.score),
+    })).filter((level) => level.label && Number.isFinite(level.score) && level.score >= 0 && level.score <= weight) : [];
+    const metadata = { ...(SAEB_SKILL_IDS.has(skill) || LEGACY_SKILL_IDS.has(skill) ? { skill } : {}), ...(explanation ? { explanation } : {}), ...(topic ? { topic } : {}), ...(difficulty ? { difficulty } : {}), ...(image ? { image, imageAlt } : {}), ...(rubric.length ? { rubric } : {}) };
     if (type === 'text') return { id, type, text: body, options: [], weight: Math.round(weight * 100) / 100, ...metadata };
 
     if (type === 'numeric') {
@@ -64,7 +67,7 @@ export function normalizeQuestions(input) {
 
 // Versão enviada ao aluno: nunca inclui o gabarito.
 export function studentQuestions(questions) {
-  return questions.map(({ correct, explanation, ...rest }) => rest);
+  return questions.map(({ correct, explanation, rubric, ...rest }) => rest);
 }
 
 const round = (n) => Math.round(n * 100) / 100;
