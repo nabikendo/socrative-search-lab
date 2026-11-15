@@ -233,3 +233,28 @@ html { scroll-behavior: smooth; }
 .check-dot { flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--text-3); }
 .check.ok .check-dot { background: var(--ok); } .check.warn .check-dot { background: var(--warn); } .check.bad .check-dot { background: var(--danger); }
 .check-title { font-weight: 600; }
+
+/* Sprint 1: preferences shared by teacher, student and projector. */
+:root { --font-scale: 1; --density-scale: 1; --fg: var(--text); }
+:root[data-font-size="small"] { --font-scale: .9; }
+:root[data-font-size="large"] { --font-scale: 1.22; }
+:root[data-compact] { --density-scale: .8; }
+body { font-size: calc(15px * var(--font-scale)); }
+:root[data-font-size] .headline { font-size: calc(17px * var(--font-scale)); }
+:root[data-font-size] .title-m { font-size: calc(24px * var(--font-scale)); }
+:root[data-font-size] .caption { font-size: calc(12px * var(--font-scale)); }
+:root[data-font-size] input, :root[data-font-size] textarea, :root[data-font-size] select,
+:root[data-font-size] .btn { font-size: max(13px, 1em); }
+:root[data-compact] .card { padding: 12px; }
+:root[data-compact] .stack { gap: 12px; }
+:root[data-compact] .stack-s { gap: 8px; }
+:root[data-high-contrast] { --line: currentColor; --text-2: var(--text); --text-3: var(--text); }
+:root[data-high-contrast] .btn:focus-visible, :root[data-high-contrast] :focus-visible { outline: 3px solid var(--text); }
+:root[data-presentation] { color-scheme: dark; --bg: #090909; --surface: #181818; --text: #fff; --text-2: #eee; --text-3: #ddd; --line: #aaa; --fill: #303030; --accent: #80bdff; --accent-press: #b1d6ff; --on-accent: #080808; --seg-on: #444; --font-scale: 1.35; }
+.settings-group { display: grid; gap: 12px; margin-bottom: 24px; }
+.settings-group .list { padding: 16px; display: grid; gap: 12px; }
+.settings-group label { display: grid; gap: 6px; }
+.settings-group input[type="checkbox"] { width: 20px; }
+.settings-group .setting-check { display: flex; align-items: center; gap: 10px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media print { :root[data-presentation] { color-scheme: light; } }

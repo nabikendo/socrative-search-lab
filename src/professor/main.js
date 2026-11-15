@@ -7,8 +7,9 @@ import * as results from './results.js';
 import * as help from './help.js';
 import * as bank from './bank.js';
 import * as descriptors from './descriptor-lab.js';
+import * as settings from './settings.js';
 
-const tabs = { turma: roster, prova: exam, banco: bank, descritores: descriptors, resultados: results, ajuda: help };
+const tabs = { turma: roster, prova: exam, banco: bank, descritores: descriptors, resultados: results, ajuda: help, configuracoes: settings };
 
 // Cada aba precisa de sua seção no HTML. Se alguma faltar, cria-a em vez de quebrar todas as outras abas.
 for (const name of Object.keys(tabs)) {
@@ -57,7 +58,8 @@ function openTab(name) {
   Promise.resolve().then(() => active.activate?.()).catch((error) => showTabError(name, error));
 }
 
-for (const button of $$('[data-tab]')) button.addEventListener('click', () => openTab(button.dataset.tab));
+$('#settings-open').addEventListener('click', () => openTab('configuracoes'));
+for (const button of $('[data-tab]')) button.addEventListener('click', () => openTab(button.dataset.tab));
 
 $('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault();

@@ -57,3 +57,12 @@ Fechamento da versão estável: histórico de saídas com horário por aluno (e 
 ## Node.js 26 e Electron 43 (1.3.0)
 
 Os pacotes ZIP passam a embutir o Node 26.13.1 (LTS, com as correções de segurança de 11/11/2026) e o aplicativo do Windows sobe do Electron 38 para o 43 (Node 24.17). Os testes rodam em Node 24 e 26 (`.github/workflows/ci.yml`). Recursos novos em uso: `URLPattern` no roteador, `crypto.hash`, `Intl.DurationFormat` no relatório individual, `Temporal` no nome das cópias (com `Date` de reserva, pois o Node 24 não o tem), `await using` nos testes e `process.loadEnvFile` para o `atlas.env`. Correção: o nome das cópias automáticas usava o horário UTC; agora usa o horário local.
+
+
+## Sprint 1 — Configurações (branch de desenvolvimento, 15/11/2026)
+- API `GET/PUT /api/teacher-settings` exige sessão autenticada do professor e valida tipos, enumerações e limites antes de gravar.
+- Preferências persistem em arquivo fora da raiz pública; gravação temporária seguida de rename reduz risco de arquivo incompleto.
+- Mudanças são registradas via `store.addAudit`.
+- A interface não libera gabarito ao aluno: a preferência correspondente é armazenada, mas sua aplicação exige autorização e verificação explícita do servidor.
+- A regeneração de códigos e exclusão em lote não foram habilitadas para evitar invalidação de sessões ou perda de dados.
+- Risco residual: tráfego HTTP na rede local, conforme auditoria anterior. A branch não altera o modelo de rede.

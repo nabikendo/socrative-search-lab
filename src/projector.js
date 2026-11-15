@@ -1,8 +1,12 @@
 import { api } from './lib/api.js';
 import { h, clear } from './lib/dom.js';
-import { applySavedTheme } from './lib/theme.js';
+import { applySavedTheme, getAppearance, setAppearance } from './lib/theme.js';
 
 applySavedTheme();
+const presentationButton = document.getElementById('presentation-toggle');
+const updatePresentation = () => presentationButton.setAttribute('aria-pressed', String(getAppearance().presentation));
+presentationButton.addEventListener('click', () => { setAppearance({ presentation: !getAppearance().presentation }); updatePresentation(); });
+updatePresentation();
 const examId = new URLSearchParams(location.search).get('exam');
 const $ = (id) => document.getElementById(id);
 const timer = setInterval(refresh, 3000);

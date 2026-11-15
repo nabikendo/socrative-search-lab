@@ -2,9 +2,22 @@ import { api, ApiError } from './lib/api.js';
 import { answerFailure } from '../shared/answer-sync.js';
 import { $, h, clear, plural, toast } from './lib/dom.js';
 import { orderForStudent } from '../shared/shuffle.js';
-import { initializeThemeButton } from './lib/theme.js';
+import { initializeThemeButton, getAppearance, setAppearance } from './lib/theme.js';
 
 initializeThemeButton();
+const appearanceDialog = document.getElementById('student-settings-dialog');
+document.getElementById('student-settings').addEventListener('click', () => {
+  const appearance = getAppearance();
+  document.getElementById('student-theme').value = appearance.theme;
+  document.getElementById('student-font').value = appearance.fontSize;
+  document.getElementById('student-contrast').checked = appearance.highContrast;
+  document.getElementById('student-compact').checked = appearance.compact;
+  appearanceDialog.showModal();
+});
+for (const [id, key, prop] of [['student-theme','theme','value'],['student-font','fontSize','value'],['student-contrast','highContrast','checked'],['student-compact','compact','checked']]) {
+  document.getElementById(id).addEventListener('change', (event) => setAppearance({ [key]: event.target[prop] }));
+}
+
 
 const SESSION_KEY = 'atlas.session';
 const rehearsalId = new URLSearchParams(location.search).get('ensaio');

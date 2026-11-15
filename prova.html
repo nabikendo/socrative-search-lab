@@ -52,7 +52,7 @@
             </div>
           </div>
           <div class="who hide-s"><strong id="student-name"></strong><span id="student-meta" class="caption"></span></div>
-          <button data-theme-toggle class="btn quiet sm" type="button">Tema</button>
+          <button id="student-settings" class="btn quiet sm" type="button" aria-label="Configurações de aparência">⚙</button>
           <button id="submit" class="btn sm" type="button">Finalizar e entregar</button>
         </div>
       </header>
@@ -115,6 +115,7 @@
       </div>
     </main>
 
+    <dialog id="student-settings-dialog"><form method="dialog" class="stack-s"><h2 class="headline">Aparência</h2><label>Tema <select id="student-theme"><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Escuro</option></select></label><label>Fonte <select id="student-font"><option value="small">Pequena</option><option value="medium">Média</option><option value="large">Grande</option></select></label><label><input id="student-contrast" type="checkbox" /> Alto contraste</label><label><input id="student-compact" type="checkbox" /> Modo compacto</label><button class="btn" type="submit">Fechar</button></form></dialog>
     <dialog id="doc-dialog" class="sheet">
       <div class="sheet-head">
         <strong id="doc-name" class="grow"></strong>
