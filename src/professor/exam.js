@@ -16,7 +16,11 @@ export async function activate() {
   state.classes = (await api('/api/classes')).classes;
   await loadList();
   const open = state.exams.find((e) => e.status === 'open');
-  await select(state.model?.id && state.exams.some((e) => e.id === state.model.id) ? state.model.id : (open || state.exams[0])?.id);
+  const jumpId = sessionStorage.getItem('atlas.jumpExam');
+  if (jumpId) sessionStorage.removeItem('atlas.jumpExam');
+  const initialId = jumpId && state.exams.some((entry) => entry.id === jumpId) ? jumpId :
+    (state.model?.id && state.exams.some((entry) => entry.id === state.model.id) ? state.model.id : (open || state.exams[0])?.id);
+  await select(initialId);
   const pendingBankQuestion = sessionStorage.getItem('atlas.bank.pending');
   if (pendingBankQuestion) {
     sessionStorage.removeItem('atlas.bank.pending');
