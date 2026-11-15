@@ -7,7 +7,7 @@ const choice = (stem, answer, incorrect, explanation, skill) => {
   const options = [...new Set([correct, ...incorrect.map(String)])].slice(0, 4);
   // Algumas combinações numéricas produzem distratores coincidentes. Completar
   // sem incluir segunda alternativa numericamente idêntica à resposta.
-  const asFraction = /^(-?\\d+)\\/(\\d+)$/.exec(correct);
+  const asFraction = /^(-?\d+)\/(\d+)$/.exec(correct);
   for (let delta = 1; options.length < 4 && delta < 20; delta++) {
     const candidate = asFraction ? `${Number(asFraction[1]) + delta}/${asFraction[2]}` :
       String(Number(correct) + delta * (Number.isInteger(Number(correct)) ? 1 : 0.5));
