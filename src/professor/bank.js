@@ -47,10 +47,13 @@ function editor(existing = null) {
       explanation: String(data.get('explanation') || '').trim(),
       options: type === 'choice' || type === 'multi' ? values : [],
       ...(type === 'choice' && answer ? { correct: answer } : {}),
-      ...(type === 'numeric' ? { correct: Number(answer), tolerance: 0 } : {}),
+      ...(type === 'multi' && answer ? { correct: answer.split(/\s*[;,]\s*/).filter(Boolean) } : {}),
+      ...(type === 'numeric' && answer !== '' ? { correct: Number(answer), tolerance: 0 } : {}),
     };
     if ((type === 'choice' || type === 'multi') && values.length < 2) { toast('Insira ao menos duas alternativas.'); return; }
     if (type === 'choice' && answer && !values.includes(answer)) { toast('O gabarito precisa coincidir com uma alternativa.'); return; }
+    if (type === 'multi' && answer && !answer.split(/\s*[;,]\s*/).filter(Boolean).every((value) => values.includes(value))) { toast('Cada resposta correta precisa coincidir com uma alternativa.'); return; }
+    if (type === 'numeric' && (!answer || !Number.isFinite(Number(answer)))) { toast('Informe um gabarito numérico válido.'); return; }
     const submit = form.querySelector('[type=submit]');
     submit.disabled = true;
     try {
@@ -75,7 +78,7 @@ function editor(existing = null) {
       field('Peso', h('input', { type: 'number', min: '0.01', max: '100', step: '0.25', name: 'weight', value: question.weight || 1, required: true })),
       field('Dificuldade', h('select', { name: 'difficulty' }, option('', 'Não definida', !question.difficulty), Object.entries(difficultyLabel).map(([key, label]) => option(key, label, key === question.difficulty))))),
     field('Alternativas (uma por linha, para questões objetivas)', h('textarea', { name: 'options', rows: 4, placeholder: 'Alternativa A\nAlternativa B\nAlternativa C', value: (question.options || []).join('\n') })),
-    field('Resposta correta (igual à alternativa; para numérica, informe o valor)', h('input', { name: 'correct', value: Array.isArray(question.correct) ? '' : question.correct || '' })),
+    field('Resposta correta (igual à alternativa; para numérica, informe o valor)', h('input', { name: 'correct', value: Array.isArray(question.correct) ? question.correct.join('; ') : question.correct ?? '' })),
     h('div', { class: 'row' },
       field('Tópico', h('input', { name: 'topic', value: question.topic || '', placeholder: 'Ex.: Ligações químicas', maxLength: 80 })),
       field('Descritor', h('input', { name: 'skill', value: question.skill || '', placeholder: 'Opcional', maxLength: 12 }))),
