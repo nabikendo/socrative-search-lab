@@ -483,6 +483,33 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   }
 
   // professor
+  // Teacher preferences are private to the server and never exposed to student routes.
+  const preferencesFile = path.join(dataDir, 'teacher-settings.json');
+  const defaults = { theme:'auto', fontSize:'medium', highContrast:false, compact:false, presentation:false,
+    defaultMinutes:50, shuffle:false, showAnswerKey:false, submissionSound:true };
+  function readPreferences() {
+    try { return { ...defaults, ...JSON.parse(fs.readFileSync(preferencesFile,'utf8')) }; }
+    catch { return { ...defaults }; }
+  }
+  route('GET','/api/teacher-settings',{admin:true},()=>readPreferences());
+  route('PUT','/api/teacher-settings',{admin:true},async({req})=>{
+    const input=await readJson(req);
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k=>!(k in defaults)))
+      throw new HttpError(400,'invalid_settings');
+    for(const [k,v] of Object.entries(input)){
+      if(k==='theme' && !['auto','light','dark'].includes(v))throw new HttpError(400,'invalid_settings');
+      if(k==='fontSize' && !['small','medium','large'].includes(v))throw new HttpError(400,'invalid_settings');
+      if(k==='defaultMinutes' && (!Number.isInteger(v)||v<1||v>480))throw new HttpError(400,'invalid_settings');
+      if(!['theme','fontSize','defaultMinutes'].includes(k)&&typeof v!=='boolean')throw new HttpError(400,'invalid_settings');
+    }
+    const settings={...readPreferences(),...input};
+    fs.mkdirSync(dataDir,{recursive:true});
+    const tmp=preferencesFile+'.tmp';
+    fs.writeFileSync(tmp,JSON.stringify(settings,null,2),{mode:0o600});
+    fs.renameSync(tmp,preferencesFile);
+    store.addAudit('teacher_settings_changed','settings','Preferências do professor atualizadas');
+    return settings;
+  });
   route('GET', '/api/network', { admin: true }, ({ req }) => ({ urls: lanUrls(req.socket.localPort) }));
   route('GET', '/api/roster', { admin: true }, () => ({ roster: store.getRoster() }));
   route('GET', '/api/classes', { admin: true }, ({ url }) => ({ classes: store.listClasses({ includeArchived:url.searchParams.get('all') === '1' }) }));
