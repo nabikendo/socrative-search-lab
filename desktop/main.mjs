@@ -66,8 +66,11 @@ async function installDownloadedUpdate() {
   if (!safety.safe) {
     await dialog.showMessageBox(window, {
       type: 'warning', title: 'Instalação adiada',
-      message: safety.reason === 'exam_in_progress' ? 'Existe uma prova aberta ou pausada.' : 'Não foi possível confirmar que os dados estão seguros.',
-      detail: 'Encerre as aplicações, confirme as entregas dos alunos e tente novamente no menu Atlas → Instalar atualização baixada.',
+      message: safety.reason === 'exam_in_progress' ? 'Existe uma prova aberta ou pausada.' :
+        safety.reason === 'unconfirmed_deliveries' ? `Existem ${safety.count} sessão(ões) com entrega não confirmada nos últimos 3 dias.` :
+        safety.reason === 'scheduled_soon' ? 'Uma prova está agendada para começar em breve.' :
+        'Não foi possível confirmar que os dados estão seguros.',
+      detail: 'Confira os envios pendentes no painel de resultados e as provas agendadas antes de instalar. A atualização permanece baixada.',
     });
     return;
   }
@@ -122,8 +125,8 @@ autoUpdater.on('update-downloaded', async (info) => {
   if (!safety.safe) {
     await dialog.showMessageBox(window, {
       type: 'info', title: 'Atualização baixada — instalação adiada',
-      message: `A versão ${info.version} está pronta, mas uma aplicação pode estar em andamento.`,
-      detail: 'O Atlas não instala atualizações enquanto houver prova aberta ou pausada. Após encerrar a aplicação e conferir as entregas, use Atlas → Instalar atualização baixada.',
+      message: `A versão ${info.version} está pronta, mas existem provas ou entregas pendentes.`,
+      detail: 'O Atlas adia a instalação se existe prova aberta, sessões recentes sem entrega ou prova agendada para começar. Confira os resultados antes de instalar.',
     });
     return;
   }
@@ -140,7 +143,7 @@ autoUpdater.on('update-downloaded', async (info) => {
 function addFirewallRule() {
   return new Promise((resolve, reject) => {
     const exe = process.execPath.replace(/'/g, "''");
-    const script = `$ErrorActionPreference='Stop'; $e='${exe}'; Remove-NetFirewallRule -DisplayName 'Atlas' -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Atlas' -Direction Inbound -Action Allow -Program $e -Profile Any | Out-Null`;
+    const script = `$ErrorActionPreference='Stop'; $e='${exe}'; Remove-NetFirewallRule -DisplayName 'Atlas' -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Atlas' -Direction Inbound -Action Allow -Program $e -Profile Private | Out-Null`;
     const encoded = Buffer.from(script, 'utf16le').toString('base64');
     const outer = `$p = Start-Process -FilePath powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','${encoded}'; exit $p.ExitCode`;
     execFile('powershell.exe', ['-NoProfile', '-Command', outer], { windowsHide: true }, (error) => (error ? reject(error) : resolve()));
@@ -151,7 +154,7 @@ async function allowFirewall() {
   if (process.platform !== 'win32') return;
   try {
     await addFirewallRule();
-    await dialog.showMessageBox(window, { type: 'info', title: 'Firewall liberado', message: 'O Windows agora permite que os alunos conectem ao Atlas.' });
+    await dialog.showMessageBox(window, { type: 'info', title: 'Firewall liberado', message: 'O Atlas foi autorizado nas redes Privadas do Windows. Confirme o perfil da rede Wi-Fi da escola.' });
   } catch {
     await dialog.showMessageBox(window, { type: 'warning', title: 'Não foi possível liberar', message: 'A liberação precisa da autorização do administrador do Windows.', detail: 'Tente de novo e escolha “Sim” quando o Windows perguntar. Em computador da escola, peça ajuda à TI.' });
   }
@@ -283,7 +286,7 @@ async function start() {
     const { response } = await dialog.showMessageBox(window, {
       type: 'question', title: 'Conexão dos alunos', buttons: ['Liberar agora', 'Depois'], defaultId: 0, cancelId: 1,
       message: 'Permitir que os alunos conectem ao Atlas?',
-      detail: 'O Firewall do Windows costuma bloquear celulares e Chromebooks da sala. A liberação pede a autorização do administrador. Você pode refazer depois em Atlas › Liberar no Firewall do Windows.',
+      detail: 'A liberação pede autorização do administrador e vale apenas para redes Privadas do Windows. Você pode refazê-la no menu Atlas › Liberar no Firewall do Windows.',
     });
     if (response === 0) await allowFirewall();
   }
