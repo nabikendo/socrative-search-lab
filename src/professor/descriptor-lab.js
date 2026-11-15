@@ -138,6 +138,28 @@ async function analyze() {
   } catch(error){if(state.skill===selected)state.error=error.message;}
   finally{if(state.skill===selected){state.working=false;render();}}
 }
+async function reviewQuestion(q) {
+  const models=(await api('/api/ai/local-models')).models || [];
+  if(!models.length){toast('IA local indisponível: instale Ollama e um modelo.');return;}
+  const select=h('select',{},models.map(name=>h('option',{value:name},name)));
+  const outcome=h('div',{class:'stack-s'},h('p',{class:'caption'},'Parecer provisório: a revisão do professor continua necessária.'));
+  const submit=h('button',{class:'btn',onclick:async()=>{
+    submit.disabled=true;submit.textContent='Analisando…';
+    try{
+      const result=await api('/api/ai/descriptor-review',{method:'POST',body:{skillId:state.skill,model:select.value,question:q}});
+      clear(outcome,h('p',{class:result.aligned?'notice':'notice warn'},result.aligned?'Possível alinhamento':'Possível divergência'),
+        h('p',{},result.justification),
+        ...result.improvements.map(text=>h('p',{class:'caption'},'Sugestão: '+text)));
+    }catch(error){clear(outcome,h('p',{class:'notice warn'},error.message));}
+    finally{submit.disabled=false;submit.textContent='Analisar novamente';}
+  }},'Analisar questão');
+  const dialog=h('dialog',{class:'atlas-descriptor-editor'},
+    h('h2',{class:'headline'},'Análise de questão por IA local'),
+    h('p',{class:'caption'},q.text),
+    field('Modelo',select),outcome,
+    h('div',{class:'row'},submit,h('button',{class:'btn secondary',onclick:()=>dialog.close()},'Fechar')));
+  document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+}
 function questionCard(q,draft=false){
   const keys=Array.isArray(q.correct)?q.correct:[q.correct];
   return h('article',{class:'card stack-s atlas-descriptor-question'},
@@ -149,6 +171,7 @@ function questionCard(q,draft=false){
     q.explanation&&h('div',{class:'notice'},'Resolução: '+q.explanation),
     h('div',{class:'row'},
       draft&&h('button',{class:'btn secondary',onclick:()=>save(q).catch(e=>toast(e.message))},'Salvar no banco'),
+      h('button',{class:'btn secondary',onclick:()=>reviewQuestion(q).catch(e=>toast(e.message))},'Analisar com IA local'),
       h('button',{class:'btn',onclick:()=>goToExam(q)},'Adicionar à prova')));
 }
 function render() {
