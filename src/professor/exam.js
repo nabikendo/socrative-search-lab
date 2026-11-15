@@ -26,10 +26,13 @@ export async function activate() {
     sessionStorage.removeItem('atlas.bank.pending');
     try {
       const question = JSON.parse(pendingBankQuestion);
+      if (state.model.locked || ['open','paused'].includes(state.model.status)) {
+        state.model = blank();
+        state.model.title = 'Nova avaliação — ' + (question.topic || 'questões do banco');
+        toast('A prova anterior está bloqueada. Uma nova avaliação foi criada para receber a questão.');
+      }
       const m = state.model;
-      if (m.locked || ['open','paused'].includes(m.status)) {
-        toast('Prova bloqueada ou em andamento: crie uma nova prova antes de inserir esta questão.');
-      } else {
+      {
         m.pdfOnly = false;
         if (!m.id && m.questions.length === 1 && !m.questions[0].text) m.questions = [];
         m.questions.push({ ...question, id: questionId(),
