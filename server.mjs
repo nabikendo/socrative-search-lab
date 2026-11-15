@@ -12,6 +12,7 @@ import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs
 import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
 import { parseRosterRows } from './shared/roster.js';
 import { skillLabel } from './shared/skills.js';
+import { listLocalModels, generateLocalQuestion } from './lib/local-ai.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -599,6 +600,19 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       return { roster: parseRosterRows(sheet), duplicates: [...counts].filter(([, count]) => count > 1).map(([number, count]) => ({ number, count })) };
     }
     catch { throw new HttpError(422, 'invalid_spreadsheet', 'Não consegui ler esta planilha. Use um arquivo .xlsx.'); }
+  });
+  // IA local opcional: rotas autenticadas e conexão restrita ao localhost.
+  route('GET', '/api/ai/local-models', { admin: true }, async () => {
+    const models = await listLocalModels();
+    return { available: models.length > 0, models, provider: 'Ollama local' };
+  });
+  route('POST', '/api/ai/descriptor-question', { admin: true }, async ({ req }) => {
+    limit(req, 'ai-descriptor', 10);
+    const input = await readJson(req);
+    try {
+      const result = await generateLocalQuestion({ skillId: input.skillId, model: input.model, context: input.context });
+      return { ...result, disclaimer: 'Rascunho: confira descritor, fatos, cálculos, gabarito e linguagem antes de usar.' };
+    } catch (error) { throw new HttpError(422, 'ai_question_unavailable', error.message); }
   });
   route('GET', '/api/question-bank', { admin: true }, () => ({ questions: store.listBankQuestions() }));
   route('POST', '/api/question-bank', { admin: true }, async ({ req }) => {
