@@ -153,3 +153,39 @@
  #exam .q-text { font-size:calc(17px * var(--fs,1)); }
  #exam .q-meta { align-items:start; }
 }
+/* Complementos das telas de Resultados, banco e caderno do aluno. */
+#app #tab-resultados .atlas-results-grid {display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.95fr);gap:16px;align-items:start;}
+#app #tab-resultados .atlas-results-column {display:grid;gap:14px;min-width:0;}
+#app #tab-resultados .atlas-results-column > .card {margin:0;}
+#app #tab-resultados .atlas-results-column > .card > .list {margin:0;}
+#app #tab-resultados .atlas-results-column > .card:has(> .list) {padding:18px;}
+#app #tab-resultados .atlas-results-column summary {cursor:pointer;}
+#app #tab-resultados .atlas-results-column .bar-row .progress {height:6px;}
+#app #tab-resultados .stats {grid-template-columns:repeat(4,minmax(0,1fr));}
+#app #tab-resultados .atlas-results-column .list-row {min-width:0;}
+#app #tab-resultados .atlas-results-column .list-row .grow {overflow-wrap:anywhere;}
+#app #tab-turma .atlas-roster-heading {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+#app #tab-turma .atlas-roster-heading h1 {font-size:30px;}
+#app #tab-turma .atlas-import-card {padding:24px 28px;}
+#app #tab-turma .atlas-upload-panel {background:color-mix(in srgb,var(--bg) 66%,var(--surface));}
+#app #tab-turma .atlas-upload-panel.dragging {border-color:var(--accent);background:var(--atlas-soft-blue);}
+#app #tab-banco .atlas-bank-sidebar .topic-chips button[aria-pressed=true] {color:var(--accent);background:var(--atlas-soft-blue);border-color:var(--accent);}
+.atlas-bank-editor {max-width:min(720px,calc(100vw - 24px));width:100%;max-height:90dvh;overflow:auto;}
+.atlas-bank-editor .row > .field {flex:1 1 160px;}
+#exam .atlas-student-main {display:grid;gap:16px;min-width:0;}
+#exam .atlas-student-main .q-card {min-height:410px;}
+#exam .atlas-student-main .atlas-student-scratch > .field {margin-top:8px;}
+#exam .atlas-side-submit {background:var(--surface);}
+#exam .atlas-side-submit .btn {min-height:46px;width:100%;}
+#exam .side .q-grid {grid-template-columns:repeat(5,minmax(0,1fr));}
+#exam .side .legend b {font-size:16px;}
+#exam .side .legend span {font-size:11px;}
+#exam .side .seg-bar {height:6px;}
+@media (max-width:1040px) {
+ #app #tab-resultados .atlas-results-grid {grid-template-columns:1fr;}
+}
+@media (max-width:750px) {
+ #app #tab-resultados .stats {grid-template-columns:repeat(2,minmax(0,1fr));}
+ #app #tab-resultados .stat:last-child {grid-column:auto;}
+ #app #tab-turma .atlas-import-card {padding:16px;}
+}
