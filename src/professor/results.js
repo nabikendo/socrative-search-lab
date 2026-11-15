@@ -150,6 +150,17 @@ function pendingStudents(d) {
     })));
 }
 
+function awayHistory(r) {
+  const clock = (ms) => new Date(ms).toLocaleTimeString('pt-BR');
+  return h('div', { class: 'answer-block' },
+    h('div', { class: 'q' }, `Saídas da página da prova (${r.away.count}, ${awayTime(r.away.seconds)} fora no total)`),
+    r.away.events.slice().reverse().map((event) => {
+      const back = Date.parse(event.at);
+      return h('div', { class: 'a' }, `${clock(back - event.seconds * 1000)} → ${clock(back)} · ${awayTime(event.seconds)}`);
+    }),
+    r.away.count > r.away.events.length ? h('div', { class: 'caption' }, `Mostrando as ${r.away.events.length} saídas mais recentes.`) : null);
+}
+
 function row(r, exam) {
   const open = state.open.has(r.sessionId);
   const head = h('button', { class: 'list-row clickable', 'aria-expanded': String(open), onclick: () => { open ? state.open.delete(r.sessionId) : state.open.add(r.sessionId); render(); } },
@@ -160,6 +171,7 @@ function row(r, exam) {
   if (!open) return h('div', {}, head);
   return h('div', {}, head,
     h('a', { class: 'btn secondary', href: `/api/sessions/${r.sessionId}/report.pdf` }, 'Baixar relatório individual em PDF'),
+    r.away?.count ? awayHistory(r) : null,
     exam.questions.map((q, i) => {
       const answer = r.answers[q.id];
       const auto = ['choice','multi','numeric'].includes(q.type) && q.correct !== undefined;

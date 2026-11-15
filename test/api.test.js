@@ -449,7 +449,11 @@ test('saída da página: professor é avisado, contagem sem duplicar, tempo rest
     await send('/api/session/away', { method: 'POST', body: back });
     await send('/api/session/away', { method: 'POST', body: back }); // reenvio por falha de rede: não conta duas vezes
     result = (await send(`/api/exams/${exam.id}/results`, { cookie })).data.results[0];
-    assert.deepEqual(result.away, { now: false, count: 1, seconds: 42 });
+    assert.equal(result.away.now, false);
+    assert.equal(result.away.count, 1);
+    assert.equal(result.away.seconds, 42);
+    assert.equal(result.away.events.length, 1);
+    assert.equal(result.away.events[0].seconds, 42);
 
     const csv = (await send(`/api/exams/${exam.id}/export.csv`, { cookie })).data;
     assert.match(csv.split('\r\n')[0], /saidas_da_pagina;segundos_fora/);
@@ -467,5 +471,38 @@ test('saída da página: professor é avisado, contagem sem duplicar, tempo rest
   } finally {
     await app2.close();
     fs.rmSync(dir2, { recursive: true, force: true });
+  }
+});
+
+test('cópias automáticas: mantém só as 40 mais recentes', async () => {
+  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-prune-'));
+  const copies = path.join(dir3, 'copias');
+  fs.mkdirSync(copies);
+  for (let i = 0; i < 45; i++) {
+    for (const ext of ['csv', 'atlas']) {
+      const file = path.join(copies, `antiga-${String(i).padStart(2, '0')}.${ext}`);
+      fs.writeFileSync(file, 'x');
+      fs.utimesSync(file, new Date(2020, 0, 1, 0, i), new Date(2020, 0, 1, 0, i));
+    }
+  }
+  fs.writeFileSync(path.join(copies, 'notas-pessoais.txt'), 'não mexer');
+  const app3 = createApp({ dataDir: dir3, pin: '111222', exportDir: copies });
+  await new Promise((r) => app3.server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${app3.server.address().port}`;
+  const post = (route, body, cookie) => fetch(url + route, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body || {}) });
+  try {
+    const cookie = (await post('/api/auth/login', { pin: '111222' })).headers.get('set-cookie').split(';')[0];
+    await post('/api/roster', { roster: [{ number: '1', name: 'A' }] }, cookie);
+    const exam = (await (await post('/api/exams', { title: 'Nova', questions: [{ type: 'text', text: 'Q', weight: 1 }] }, cookie)).json()).exam;
+    await post(`/api/exams/${exam.id}/open`, {}, cookie);
+    await post(`/api/exams/${exam.id}/close`, {}, cookie);
+    const names = new Set(fs.readdirSync(copies).filter((f) => /\.(csv|atlas)$/.test(f)).map((f) => f.replace(/\.(csv|atlas)$/, '')));
+    assert.equal(names.size, 40);
+    assert.ok(![...names].includes('antiga-00') && [...names].includes('antiga-44'));
+    assert.ok([...names].some((n) => n.startsWith('Nova-')));
+    assert.ok(fs.existsSync(path.join(copies, 'notas-pessoais.txt')), 'outros arquivos da pasta não são apagados');
+  } finally {
+    await app3.close();
+    fs.rmSync(dir3, { recursive: true, force: true });
   }
 });

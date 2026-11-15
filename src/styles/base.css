@@ -225,3 +225,11 @@ html { scroll-behavior: smooth; }
 /* barra de progresso (aluno e painel do professor) */
 .progress { height: 4px; border-radius: 2px; background: var(--fill); overflow: hidden; }
 .progress > div { height: 100%; background: var(--accent); width: 0; transition: width 0.25s; }
+
+/* linhas de diagnóstico (painel do professor e página /teste) */
+.checks { display: grid; gap: 4px; }
+.check { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.check:first-child { border-top: 0; }
+.check-dot { flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--text-3); }
+.check.ok .check-dot { background: var(--ok); } .check.warn .check-dot { background: var(--warn); } .check.bad .check-dot { background: var(--danger); }
+.check-title { font-weight: 600; }

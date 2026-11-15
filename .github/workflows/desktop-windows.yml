@@ -33,7 +33,11 @@ jobs:
       - name: Testes automatizados
         run: npm test
       - name: Gerar instalador
-        run: npm run desktop:package
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($version -match '-') { npm run desktop:package } else { npm run desktop:package -- -c.publish.channel=latest -c.publish.releaseType=release }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Verificar os arquivos do instalador e do atualizador
@@ -41,15 +45,17 @@ jobs:
         run: |
           $version = node -p "require('./package.json').version"
           $installer = "release-desktop/Atlas-Setup-$version-x64.exe"
-          $required = @($installer, "$installer.blockmap", "release-desktop/beta.yml", "release-desktop/win-unpacked/resources/app-update.yml")
+          $manifestName = if ($version -match '-') { 'beta.yml' } else { 'latest.yml' }
+          if ($version -notmatch '-' -and !(Test-Path 'release-desktop/latest.yml') -and (Test-Path 'release-desktop/beta.yml')) { Copy-Item 'release-desktop/beta.yml' 'release-desktop/latest.yml' }
+          $required = @($installer, "$installer.blockmap", "release-desktop/$manifestName", "release-desktop/win-unpacked/resources/app-update.yml")
           foreach ($file in $required) {
             if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Item -LiteralPath $file).Length -eq 0) {
               throw "Arquivo ausente ou vazio: $file"
             }
           }
           $hash = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash -LiteralPath $installer -Algorithm SHA512).Hash))
-          $manifest = Get-Content -Raw -LiteralPath "release-desktop/beta.yml"
-          if (!$manifest.Contains($hash)) { throw "O manifesto beta não corresponde ao instalador." }
+          $manifest = Get-Content -Raw -LiteralPath "release-desktop/$manifestName"
+          if (!$manifest.Contains($hash)) { throw "O manifesto $manifestName não corresponde ao instalador." }
       - name: Abrir o Atlas empacotado e conferir o painel
         shell: pwsh
         run: |
@@ -85,11 +91,12 @@ jobs:
             release-desktop/*.exe
             release-desktop/*.exe.blockmap
             release-desktop/beta.yml
+            release-desktop/latest.yml
           if-no-files-found: error
 
   release-windows:
     needs: build-windows
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish atlas beta]')
+    if: github.event_name == 'push' && (contains(github.event.head_commit.message, '[publish atlas beta]') || contains(github.event.head_commit.message, '[publish atlas stable]'))
     runs-on: windows-latest
     permissions:
       contents: write
@@ -98,16 +105,40 @@ jobs:
         with:
           name: Atlas-Desktop-Windows
           path: release-desktop
-      - name: Publicar pré-lançamento
+      - name: Publicar versão
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           $installer = Get-ChildItem -LiteralPath "release-desktop" -Filter "Atlas-Setup-*-x64.exe"
-          if (@($installer).Count -ne 1 -or $installer.Name -notmatch '^Atlas-Setup-(\d+\.\d+\.\d+-beta\.\d+)-x64\.exe$') {
-            throw "O instalador deve ter uma versão beta."
+          if (@($installer).Count -ne 1 -or $installer.Name -notmatch '^Atlas-Setup-(\d+\.\d+\.\d+)(-beta\.\d+)?-x64\.exe$') {
+            throw "O instalador deve ter uma versão estável (1.2.0) ou beta (1.2.0-beta.1)."
           }
-          $version = $Matches[1]
+          $version = "$($Matches[1])$($Matches[2])"
+          $isBeta = [bool]$Matches[2]
           $tag = "v$version"
-          gh release create $tag $installer.FullName "$($installer.FullName).blockmap" "release-desktop/beta.yml" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "Atlas $version para Windows" --notes "Aviso quando o aluno sai da página, teste de conexão dos alunos, tempo restante, Firewall e suspensão do Windows, cópia automática ao encerrar, impressão da prova e novo visual."
+          $files = @($installer.FullName, "$($installer.FullName).blockmap")
+          if ($isBeta) {
+            if ($env:COMMIT_MESSAGE -notlike '*[[]publish atlas beta[]]*') { throw "Versão beta exige a marca [publish atlas beta] na mensagem do commit." }
+            $files += "release-desktop/beta.yml"
+            gh release create $tag @files --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "Atlas $version para Windows" --notes "Pré-lançamento do Atlas para Windows."
+          } else {
+            if ($env:COMMIT_MESSAGE -notlike '*[[]publish atlas stable[]]*') { throw "Versão estável exige a marca [publish atlas stable] na mensagem do commit." }
+            # quem está no canal beta procura beta.yml: a versão estável publica o mesmo manifesto nos dois nomes
+            Copy-Item -LiteralPath "release-desktop/latest.yml" -Destination "release-desktop/beta.yml" -Force
+            $files += "release-desktop/latest.yml"
+            $files += "release-desktop/beta.yml"
+            $notes = @"
+          Atlas $version, versão estável para Windows.
 
+          - Aviso ao professor quando o aluno sai da página da prova, com horário, contagem e tempo fora
+          - Página /teste para os alunos conferirem a conexão antes da prova
+          - Tempo restante pelo relógio do computador do professor
+          - O Windows não suspende com uma prova aberta; liberação do Firewall pelo menu
+          - Cópia automática (planilha e backup) ao encerrar, inclusive quando a prova termina pelo horário
+          - Impressão da prova e do gabarito
+          - Novo visual, limpo e minimalista, e correções de bugs
+          "@
+            gh release create $tag @files --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --latest --title "Atlas $version para Windows" --notes $notes
+          }

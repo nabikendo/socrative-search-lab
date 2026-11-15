@@ -28,6 +28,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   const lastSeen = new Map(); // batimentos ficam só na memória: não geram escrita em disco
   const buckets = new Map();
   const awayNow = new Map(); // alunos que saíram da página da prova agora (sessionId -> início)
+  let watchedExamId = null; // prova aberta que acompanhamos para copiar quando ela terminar sozinha
   const awayLogged = new Set(); // evita contar duas vezes o mesmo retorno reenviado
   const devices = new Map(); // aparelhos de alunos que abriram a página (para o diagnóstico de rede)
 
@@ -112,7 +113,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       const result = scoreSession(exam, given, grades[s.id]);
       return {
         sessionId: s.id, number: s.number, name: s.name || roster.get(s.number)?.name || 'Aluno fora da lista', className: s.className || roster.get(s.number)?.className || '',
-        away: { now: awayNow.has(s.id) && isOnline(s) && s.status !== 'submitted', count: awaySummary[s.id]?.count || 0, seconds: awaySummary[s.id]?.seconds || 0 },
+        away: { now: awayNow.has(s.id) && isOnline(s) && s.status !== 'submitted', count: awaySummary[s.id]?.count || 0, seconds: awaySummary[s.id]?.seconds || 0, events: awaySummary[s.id]?.events || [] },
         status: s.status, online: isOnline(s), startedAt: s.startedAt, submittedAt: s.submittedAt,
         answered: Object.values(given).filter((value)=>Array.isArray(value)?value.length>0:String(value??'').trim().length>0).length, total: exam.questions.length,
         score: result.score, max: result.max, pending: result.pending, detail: result.detail, answers: given, grades: grades[s.id] || {},
@@ -201,7 +202,21 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       fs.writeFileSync(path.join(exportDir, `${name}.csv`), examCsv(exam), 'utf8');
       fs.writeFileSync(path.join(exportDir, `${name}.atlas`), JSON.stringify(store.exportBackup()));
       store.addAudit('exam_copy_saved', exam.id, name);
+      pruneCopies();
     } catch (error) { console.error('Não foi possível salvar a cópia automática:', error.message); }
+  }
+
+  // guarda só as últimas 40 cópias para a pasta não crescer sem fim
+  function pruneCopies(keep = 40) {
+    const groups = new Map();
+    for (const file of fs.readdirSync(exportDir)) {
+      if (!/\.(csv|atlas)$/.test(file)) continue;
+      const name = file.replace(/\.(csv|atlas)$/, '');
+      const time = fs.statSync(path.join(exportDir, file)).mtimeMs;
+      groups.set(name, Math.max(groups.get(name) || 0, time));
+    }
+    const old = [...groups].sort((a, b) => b[1] - a[1]).slice(keep).map(([name]) => name);
+    for (const name of old) for (const ext of ['csv', 'atlas']) fs.rmSync(path.join(exportDir, `${name}.${ext}`), { force: true });
   }
 
   function lanUrls(port) {
@@ -651,7 +666,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return { ok: true };
   });
   route('POST', '/api/exams/:id/open', { admin: true }, ({ params }) => { const exam=needExam(params.id);const code=store.openExam(params.id);store.addAudit('exam_opened',exam.id,'Prova aberta para os alunos.');return { ok: true, code }; });
-  route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { const exam=needExam(params.id);store.closeExam(params.id);store.addAudit('exam_closed',exam.id,'Prova encerrada pelo professor.');saveCopy(needExam(params.id));return { ok: true }; });
+  route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { const exam=needExam(params.id);store.closeExam(params.id);store.addAudit('exam_closed',exam.id,'Prova encerrada pelo professor.');watchedExamId=null;saveCopy(needExam(params.id));return { ok: true }; });
   route('POST', '/api/exams/:id/pause', { admin:true }, ({ params }) => {
     const exam=needExam(params.id);
     if (exam.status!=='open') throw new HttpError(409,'exam_not_open');
@@ -757,7 +772,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const lines = [
       'ATLAS - RELATORIO INDIVIDUAL', `Prova: ${exam.title}`, `Estudante: ${result.name} - numero ${result.number}`,
       `Turma: ${result.className || 'Nao informada'}`, `Situacao: ${result.status === 'submitted' ? 'Entregue' : 'Em andamento'}`,
-      `Nota: ${result.score} / ${result.max}`, '', 'RESPOSTAS',
+      `Nota: ${result.score} / ${result.max}`, `Saidas da pagina da prova: ${result.away.count} (${result.away.seconds} s fora)`, '', 'RESPOSTAS',
       ...exam.questions.flatMap((q, i) => [`${i + 1}. ${q.text}`, `Habilidade: ${skillLabel(q.skill) || 'Nao informada'} | Nota: ${result.detail[q.id]?.earned ?? 'Pendente'} / ${q.weight}`, `Resposta: ${result.answers[q.id] || 'Sem resposta'}`, '']),
     ];
     const pdf = simplePdf(lines);
@@ -943,7 +958,16 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
 
   const backupTimer = setInterval(() => store.snapshot(), 5 * 60_000);
   backupTimer.unref();
-  const scheduleTimer = setInterval(() => store.activateSchedules(), 1000);
+  const scheduleTimer = setInterval(() => {
+    store.activateSchedules();
+    // prova encerrada pelo horário: também guarda a cópia automática
+    const open = store.getOpenExam();
+    if (open) watchedExamId = open.id;
+    else if (watchedExamId) {
+      const ended = store.getExam(watchedExamId);
+      if (ended?.status === 'closed') { watchedExamId = null; saveCopy(ended); } else if (!ended || ended.status !== 'paused') watchedExamId = null;
+    }
+  }, 1000);
   scheduleTimer.unref();
   const close = () => new Promise((resolve) => { clearInterval(backupTimer); clearInterval(scheduleTimer); server.close(() => { store.close(); resolve(); }); server.closeAllConnections?.(); });
   return { server, store, pin, close };
@@ -960,7 +984,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   let pin = process.env.ATLAS_PIN || (fs.existsSync(pinFile) ? fs.readFileSync(pinFile, 'utf8').trim() : '');
   if (!pin) { pin = String(crypto.randomInt(100000, 1000000)); fs.writeFileSync(pinFile, pin + '\n'); }
 
-  const app = createApp({ dataDir, pin });
+  const app = createApp({ dataDir, pin, exportDir: process.env.ATLAS_EXPORT_DIR || path.join(os.homedir(), 'Documents', 'Atlas', 'Copias') });
   if (!fs.existsSync(path.join(dist, 'index.html'))) console.warn('Aviso: faltam as telas do Atlas (pasta dist). Rode "npm run build" ou use o arquivo Iniciar-Atlas.');
   app.server.on('error', (error) => {
     if (error.code === 'EADDRINUSE') console.error(`\n  A porta ${port} já está em uso. Provavelmente o Atlas já está aberto em outra janela.\n  Feche a outra janela e tente de novo (ou use outra porta: PORT=3000).\n`);

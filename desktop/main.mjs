@@ -113,7 +113,8 @@ async function start() {
     : path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   updateChannelFile=path.join(app.getPath('userData'),'update-channel.txt');
-  try{updateChannel=fs.readFileSync(updateChannelFile,'utf8').trim()==='stable'?'stable':'beta';}catch{}
+  updateChannel=app.getVersion().includes('-')?'beta':'stable'; // versão estável acompanha só estáveis, a menos que o professor escolha outro canal
+  try{const saved=fs.readFileSync(updateChannelFile,'utf8').trim();if(saved==='stable'||saved==='beta')updateChannel=saved;}catch{}
   useUpdateChannel(updateChannel);
   const pin = getPin(dataDir);
   function switchProfile(id) {

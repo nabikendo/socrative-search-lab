@@ -441,7 +441,7 @@ async function beat() {
 // ---------- aviso ao professor quando o aluno sai da página da prova
 const AWAY_KEY = 'atlas.away';
 const away = { since: 0, hidden: false, sent: false, timer: 0, queue: readJson(AWAY_KEY) || [] };
-const examActive = () => !!state.session && !state.closed && !rehearsalId && !$('#exam').hidden;
+const examActive = () => !!state.session && !state.closed && !state.paused && !rehearsalId && !$('#exam').hidden;
 const credentials = () => ({ sessionId: state.session.id, token: state.session.token });
 
 function leavePage(kind) {

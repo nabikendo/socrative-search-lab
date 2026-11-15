@@ -158,7 +158,7 @@ Faça um teste com Internet desligada e alguns alunos fictícios: abra a prova e
 
 A nota aparece como `pontos/máximo`, junto com quantas respostas aguardam correção. O gabarito **nunca** é enviado ao aluno.
 
-## Sala de aula com rede ruim (1.2.0-beta.7)
+## Sala de aula com rede ruim (1.2.0)
 
 O Atlas funciona sem Internet; o que costuma falhar é a rede da sala. O que ajuda:
 
@@ -166,9 +166,9 @@ O Atlas funciona sem Internet; o que costuma falhar é a rede da sala. O que aju
 - **Teste dos alunos:** antes da prova, peça que abram o endereço do professor terminado em `/teste`. A página mede a conexão e avisa o professor que o aparelho chegou.
 - **Firewall do Windows:** na primeira abertura o Atlas oferece liberar a rede. Para refazer: menu **Atlas › Liberar no Firewall do Windows**.
 - **Computador acordado:** com uma prova aberta, o Windows não entra em suspensão.
-- **Saiu da página:** o aluno é avisado de que o professor sabe quando ele sai da prova. Em **Resultados** aparece “Fora da prova” em tempo real, quantas vezes saiu e por quanto tempo; os números também vão para a planilha. É um sinal para conversar, não prova de colagem: abrir o PDF em outra aba e o clique na barra de endereço também contam.
+- **Saiu da página:** o aluno é avisado de que o professor sabe quando ele sai da prova. Em **Resultados** aparece “Fora da prova” em tempo real, quantas vezes saiu e por quanto tempo. Ao abrir o aluno, a lista mostra o horário de cada saída; os números também vão para a planilha e para o relatório individual. É um sinal para conversar, não prova de colagem: abrir o PDF em outra aba e o clique na barra de endereço também contam.
 - **Tempo restante:** quando a prova tem horário de encerramento, o aluno vê o tempo restante pelo relógio do computador do professor.
-- **Cópia automática:** ao encerrar, planilha e backup vão para `Documentos\Atlas\Copias` (menu **Atlas › Abrir pasta das cópias de provas**). Se a pasta Documentos sincroniza com a nuvem, a cópia já sai do computador.
+- **Cópia automática:** ao encerrar a prova (pelo botão ou pelo horário programado), planilha e backup vão para `Documentos\Atlas\Copias` (menu **Atlas › Abrir pasta das cópias de provas**). Se a pasta Documentos sincroniza com a nuvem, a cópia já sai do computador. O Atlas guarda as 40 cópias mais recentes e apaga as mais antigas.
 - **Plano B no papel:** na aba **Prova**, **Imprimir prova** e **Imprimir gabarito**.
 
 ## 5. Problemas comuns
