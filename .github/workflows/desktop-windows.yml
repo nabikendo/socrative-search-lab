@@ -33,11 +33,7 @@ jobs:
       - name: Testes automatizados
         run: npm test
       - name: Gerar instalador
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          if ($version -match '-') { npm run desktop:package } else { npm run desktop:package -- -c.publish.channel=latest -c.publish.releaseType=release }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: npm run desktop:package
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Verificar os arquivos do instalador e do atualizador
@@ -45,8 +41,7 @@ jobs:
         run: |
           $version = node -p "require('./package.json').version"
           $installer = "release-desktop/Atlas-Setup-$version-x64.exe"
-          $manifestName = if ($version -match '-') { 'beta.yml' } else { 'latest.yml' }
-          if ($version -notmatch '-' -and !(Test-Path 'release-desktop/latest.yml') -and (Test-Path 'release-desktop/beta.yml')) { Copy-Item 'release-desktop/beta.yml' 'release-desktop/latest.yml' }
+          $manifestName = 'beta.yml' # o electron-builder gera sempre este manifesto; a versão estável o publica também como latest.yml
           $required = @($installer, "$installer.blockmap", "release-desktop/$manifestName", "release-desktop/win-unpacked/resources/app-update.yml")
           foreach ($file in $required) {
             if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Item -LiteralPath $file).Length -eq 0) {
@@ -91,7 +86,6 @@ jobs:
             release-desktop/*.exe
             release-desktop/*.exe.blockmap
             release-desktop/beta.yml
-            release-desktop/latest.yml
           if-no-files-found: error
 
   release-windows:
@@ -126,7 +120,7 @@ jobs:
           } else {
             if ($env:COMMIT_MESSAGE -notlike '*[[]publish atlas stable[]]*') { throw "Versão estável exige a marca [publish atlas stable] na mensagem do commit." }
             # quem está no canal beta procura beta.yml: a versão estável publica o mesmo manifesto nos dois nomes
-            Copy-Item -LiteralPath "release-desktop/latest.yml" -Destination "release-desktop/beta.yml" -Force
+            Copy-Item -LiteralPath "release-desktop/beta.yml" -Destination "release-desktop/latest.yml" -Force
             $files += "release-desktop/latest.yml"
             $files += "release-desktop/beta.yml"
             $notes = @"
