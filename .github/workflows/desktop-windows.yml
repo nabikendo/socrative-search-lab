@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feat/atlas-desktop-hardening
+      - release/atlas-descritores-beta-20261115
     paths:
       - 'desktop/**'
       - 'server.mjs'
