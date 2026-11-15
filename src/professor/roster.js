@@ -174,17 +174,20 @@ async function editAccommodation(student) {
   } catch (error) { toast(error.message); }
 }
 
+async function handleRosterFile(file) {
+  if (!file) return;
+  try { propose(await readFile(file)); } catch (error) { state.error = error.message || 'Não consegui ler este arquivo.'; render(); }
+}
 function render() {
   const textarea = h('textarea', { placeholder: '3;Nome do aluno\n5;Outro aluno', 'aria-label': 'Colar lista de alunos' });
   const picker = h('input', { type: 'file', accept: '.pdf,.csv,.txt,.xlsx', id: 'roster-file', onchange: async (e) => {
     const file = e.target.files[0]; e.target.value = '';
-    if (!file) return;
-    try { propose(await readFile(file)); } catch (error) { state.error = error.message || 'Não consegui ler este arquivo.'; render(); }
+    await handleRosterFile(file);
   } });
 
   clear(root, h('div', { class: 'stack' },
     h('div', { class: 'stack-s' },
-      h('div', { class: 'row between' }, h('h1', { class: 'title' }, 'Turma'),
+      h('div', { class: 'atlas-roster-heading' }, h('div', {}, h('h1', { class: 'title' }, 'Turma'), h('p', { class: 'sub' }, 'Importe sua lista de frequência e organize avaliações por turma.')),
         h('button', { class: 'btn secondary', onclick: () => createEmptyClass().catch((error) => toast(error.message)) }, 'Criar turma')),
       state.classes.length > 0 && h('div', { class: 'class-grid', 'aria-label': 'Turmas salvas' },
         state.classes.map((item) => h('button', {
@@ -199,6 +202,10 @@ function render() {
       h('label', { class:'row caption' }, h('input', { type:'checkbox', checked:state.includeArchived, onchange:async (e) => { state.includeArchived=e.target.checked; state.classes=(await api(`/api/classes${state.includeArchived ? '?all=1' : ''}`)).classes; if (!state.classes.some((c)=>c.id===state.classId)) state.classId=state.classes[0]?.id || ''; await loadClassRoster(); render(); } }), 'Mostrar turmas arquivadas'),
       h('p', { class: 'lead' }, state.roster.length ? `${plural(state.roster.length, 'aluno cadastrado', 'alunos cadastrados')}${state.className ? ` em ${state.className}` : ''}.` : 'Importe a lista de frequência para começar.')),
 
+    !state.classes.length && !state.preview && h('ol', { class: 'steps' },
+      step('1', 'Importe a lista de alunos', 'PDF do Diário de Classe, planilha XLSX ou texto.'),
+      step('2', 'Crie a prova', 'Na aba Prova, monte ou importe questões e selecione a turma.'),
+      step('3', 'Abra para os alunos', 'Compartilhe o código e QR Code e acompanhe os envios em tempo real.')),
     h('div', { class:'card stack-s' }, h('h2', { class:'headline' }, 'Buscar aluno'),
       h('input', { type:'search', value:state.search, placeholder:'Nome ou número de chamada', oninput:(e) => { clearTimeout(state.searchTimer); const term=e.target.value; state.searchTimer=setTimeout(() => searchStudents(term).catch((error)=>toast(error.message)), 250); } }),
       state.matches.length ? studentList(state.matches, 30, true) : state.search.trim() && h('p', { class:'caption' }, 'Nenhum aluno encontrado.')),
@@ -218,10 +225,7 @@ function render() {
       recoveryPlan(state.history.recovery),
       state.history.error ? h('p',{class:'caption'},state.history.error) : state.history.entries.length ? h('div',{class:'list'},state.history.entries.map((entry)=>h('div',{class:'list-row'},h('span',{class:'grow'},`${entry.title} · ${entry.className || 'Turma não informada'}`),h('span',{class:'badge'},entry.status==='submitted'?'Entregue':'Em andamento'),h('span',{class:'caption'},new Date(entry.startedAt).toLocaleDateString('pt-BR'))))) : h('p',{class:'caption'},'Ainda não há provas registradas para este estudante.')),
 
-    !state.roster.length && !state.preview && h('ol', { class: 'steps' },
-      step('1', 'Importe a lista de alunos', 'PDF do diário, planilha ou texto. É só uma vez por turma.'),
-      step('2', 'Crie a prova', 'Na aba Prova: escreva as questões e marque a resposta certa.'),
-      step('3', 'Abra para os alunos', 'Mostre o código e o QR Code. Acompanhe tudo na aba Resultados.')),
+
 
     state.preview
       ? h('div', { class: 'stack-s' },
@@ -234,12 +238,22 @@ function render() {
         h('div', { class: 'row' },
           h('button', { class: 'btn', onclick: () => confirmImport().catch((e) => toast(e.message)) }, state.classId ? 'Conferir mudanças' : `Importar ${state.preview.length}`),
           h('button', { class: 'btn secondary', onclick: () => { state.preview = null; state.duplicates = []; render(); } }, 'Cancelar')))
-      : h('div', { class: 'card stack-s' },
-        h('h2', { class: 'headline' }, 'Importar lista'),
-        h('p', { class: 'sub' }, 'PDF do diário de classe, planilha XLSX, CSV ou texto. O arquivo é lido neste computador e nunca sai da rede local.'),
-        h('label', { class: 'field' }, h('span', {}, 'Nome da turma'), h('input', { value: state.className, placeholder: 'Será identificado no Diário de Classe quando possível', oninput: (e) => setTargetClassName(e.target.value) })),
-        h('div', { class: 'row' }, picker, h('label', { class: 'btn', for: 'roster-file' }, 'Escolher arquivo')),
-        h('details', {}, h('summary', { class: 'caption', style: 'cursor:pointer' }, 'Ou cole a lista'),
+      : h('div', { class: 'card stack-s atlas-import-card' },
+        h('div', { class: 'row between' }, h('div', {}, h('h2', { class: 'headline' }, 'Importar lista'),
+          h('p', { class: 'sub' }, 'Carregue ou digite a lista de estudantes cadastrados.')),
+          h('span', { class: 'badge ok' }, 'Processamento local')),
+        h('p', { class: 'notice' }, 'Formatos com detecção automática: Diário de Classe SEDUC-TO (PDF), Excel (.xlsx), CSV ou texto. Revise os números e nomes antes de salvar.'),
+        h('label', { class: 'field' }, h('span', {}, 'Nome da turma (identificado automaticamente quando disponível)'), h('input', { value: state.className, placeholder: 'Ex.: 13.01/EM.MAT-ANL', oninput: (e) => setTargetClassName(e.target.value) })),
+        h('div', { class: 'atlas-upload-panel',
+          ondragover: (e) => { e.preventDefault(); e.currentTarget.classList.add('dragging'); },
+          ondragleave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('dragging'); },
+          ondrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove('dragging'); handleRosterFile(e.dataTransfer?.files?.[0]); }
+        },
+          h('div', { class: 'eyebrow' }, 'Arquivo da lista de alunos'),
+          picker,
+          h('label', { class: 'btn', for: 'roster-file' }, 'Escolher arquivo'),
+          h('p', { class: 'caption' }, 'Ou arraste e solte aqui · PDF, XLSX, CSV ou TXT')),
+        h('details', {}, h('summary', { class: 'caption', style: 'cursor:pointer' }, 'Ou cole a lista manualmente'),
           h('div', { class: 'stack-s', style: 'margin-top:12px' }, textarea, h('div', {}, h('button', { class: 'btn secondary', onclick: () => propose(parseRosterTextDetailed(textarea.value)) }, 'Ler lista')))),
         state.error && h('p', { class: 'error', role: 'alert' }, state.error)),
 
