@@ -64,6 +64,17 @@ const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, d
 function newQuestion(type) {
   return { id: questionId(), type, text: '', options: ['choice','multi'].includes(type) ? ['', ''] : [], correctIndex: null, correctIndexes:[], numericAnswer:'', tolerance:0, image:'', imageAlt:'', topic:'',difficulty:'',rubric:[],weight: 1 };
 }
+function appendManualQuestion(model, type) {
+  // PDF-only mode deliberately hides the editable questions. Switch modes
+  // before appending; otherwise the new item exists in memory but stays hidden.
+  if (model.pdfOnly) {
+    model.pdfOnly = false;
+    model.questions = [];
+  }
+  model.questions.push(newQuestion(type));
+  touch();
+  render();
+}
 const fromServer = (exam, locked) => ({ ...exam, locked, pdfOnly: !exam.questions.length, questions: exam.questions.map((q) => ({ ...q, correctIndex: typeof q.correct==='string'&&q.options?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((answer)=>q.options.indexOf(answer)).filter((i)=>i>=0):[], numericAnswer:q.type==='numeric'?q.correct:'', tolerance:q.tolerance ?? 0 })) });
 function payload() {
   return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, classId: state.model.classId || null, feedback: !!state.model.feedback, questions: state.model.pdfOnly ? [] : state.model.questions.map((q) => {
@@ -169,8 +180,8 @@ function render() {
         h('div', { class: 'original-pdf', 'aria-label': 'PDF original da prova' }))),
 
     !m.locked && h('div', { class: 'row' },
-      h('button', { class: 'btn secondary', onclick: () => { m.questions.push(newQuestion('choice')); touch(); render(); } }, 'Adicionar questão'),
-      h('button', { class: 'btn quiet', onclick: () => { m.questions.push(newQuestion('text')); touch(); render(); } }, 'Questão aberta')),
+      h('button', { class: 'btn secondary', onclick: () => { appendManualQuestion(m, 'choice'); } }, 'Adicionar questão'),
+      h('button', { class: 'btn quiet', onclick: () => { appendManualQuestion(m, 'text'); } }, 'Questão aberta')),
     !m.locked && pdfOnlyOption(m),
     !m.locked && !m.pdfOnly && quickText(m),
     documentCard(m))),

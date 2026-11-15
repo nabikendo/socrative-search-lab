@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural, formatScore } from '../lib/dom.js';
+import { finalAnswersForItem } from '../../shared/assessment-results.js';
 import { skillLabel } from '../../shared/skills.js';
 
 let root;
@@ -224,7 +225,7 @@ function skillInsights(d) {
   const groups = new Map();
   for (const q of d.exam.questions) {
     if (!q.skill || !(['choice','multi','numeric'].includes(q.type) && q.correct !== undefined)) continue;
-    const answered = d.results.map((r) => r.answers[q.id]).filter((answer) => answer !== undefined && answer !== null && String(answer).trim() !== '');
+    const answered = finalAnswersForItem(d.results, q.id);
     const item = groups.get(q.skill) || { total: 0, correct: 0 };
     item.total += answered.length;
     item.correct += answered.filter((answer) => {
@@ -237,7 +238,7 @@ function skillInsights(d) {
     groups.set(q.skill, item);
   }
   if (!groups.size) return null;
-  return h('details', { class: 'card insights', open: true }, h('summary', { class: 'headline' }, 'Relatório por habilidade SAEB'),
+  return h('details', { class: 'card insights', open: true }, h('summary', { class: 'headline' }, 'Relatório por habilidade SAEB · somente provas entregues'),
     h('div', { class: 'stack-s', style: 'margin-top:16px' }, [...groups].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR', { numeric: true })).map(([skill, item]) => {
       const pct = item.total ? Math.round(item.correct / item.total * 100) : null;
       return h('div', { class: 'bar-row' }, h('div', { class: 'row between caption' }, h('strong', {}, skillLabel(skill) || skill), h('span', {}, pct === null ? 'Sem respostas' : `${pct}% · ${item.correct}/${item.total}`)), h('div', { class: 'progress' }, h('div', { style: `width:${pct || 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })));
@@ -323,7 +324,7 @@ function stats(d) {
 function insights(d) {
   const isObjective=(q)=>['choice','multi','numeric'].includes(q.type)&&q.correct!==undefined;
   const rows = d.exam.questions.map((q, i) => ({ q, i })).filter(({ q }) => isObjective(q)).map(({ q, i }) => {
-    const given = d.results.map((r) => r.answers[q.id]).filter((answer)=>answer!==undefined&&answer!==null&&String(answer).trim()!=='');
+    const given = finalAnswersForItem(d.results, q.id);
     const isCorrect=(a)=>q.type==='choice'?a===q.correct:q.type==='numeric'?Number.isFinite(Number(String(a).replace(',','.')))&&Math.abs(Number(String(a).replace(',','.'))-Number(q.correct))<=(q.tolerance||0):(()=>{let v=a;if(typeof v==='string'){try{v=JSON.parse(v)}catch{v=[]}}return Array.isArray(v)&&v.length===q.correct.length&&[...v].sort().every((x,j)=>x===[...q.correct].sort()[j]);})();
     const right = given.filter(isCorrect).length;
     const wrong = {};
@@ -333,7 +334,7 @@ function insights(d) {
   });
   if (!rows.length || !rows.some((r) => r.total)) return null;
   return h('details', { class: 'card insights' },
-    h('summary', { class: 'headline' }, 'Desempenho por questão'),
+    h('summary', { class: 'headline' }, 'Desempenho por questão · somente provas entregues'),
     h('div', { class: 'stack-s', style: 'margin-top:16px' }, rows.map(({ i, q, total, pct, top }) => h('div', { class: 'bar-row' },
       h('div', { class: 'row between caption' }, h('span', {}, `Q${i + 1} · ${q.text.length > 60 ? q.text.slice(0, 60) + '…' : q.text}`), h('span', { class: 'score' }, pct === null ? '—' : `${pct}%`)),
       h('div', { class: 'progress' }, h('div', { style: `width:${pct ?? 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })),
