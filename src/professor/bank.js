@@ -40,6 +40,9 @@ function editor(existing = null) {
     const answer = String(data.get('correct') || '').trim();
     const text = String(data.get('text') || '').trim();
     const payload = {
+      // All metadata that is not edited in this modal must survive a text edit.
+      ...(existing ? { id: existing.id, image: existing.image, imageAlt: existing.imageAlt,
+        rubric: existing.rubric } : {}),
       type, text, weight: Number(data.get('weight') || 1),
       topic: String(data.get('topic') || '').trim(),
       skill: String(data.get('skill') || '').trim(),
@@ -57,14 +60,11 @@ function editor(existing = null) {
     const submit = form.querySelector('[type=submit]');
     submit.disabled = true;
     try {
-      // A API do banco adiciona novos itens. Na edição, só elimina o original depois do novo registro existir.
-      const created = await api('/api/question-bank', { method: 'POST', body: payload });
+      // Edit in place (single SQLite transaction); keep bankId, favorites and images.
       if (existing) {
-        try {
-          await api(`/api/question-bank/${existing.bankId}`, { method: 'DELETE' });
-          if (favoriteIds.delete(existing.bankId)) favoriteIds.add(created.question.bankId);
-          localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favoriteIds]));
-        } catch { toast('Cópia salva. O item anterior permanece no banco.'); }
+        await api(`/api/question-bank/${existing.bankId}`, { method: 'PUT', body: payload });
+      } else {
+        await api('/api/question-bank', { method: 'POST', body: payload });
       }
       dialog.close();
       await load();
