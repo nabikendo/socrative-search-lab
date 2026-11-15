@@ -6,12 +6,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { createApp } from '../server.mjs';
+import { updateSafety } from './update-safety.mjs';
 
 const { autoUpdater } = updater;
 
 let atlas;
 let window;
 let manualUpdateCheck=false;
+let downloadedUpdate=null;
 let updateChannel='beta';
 let updateChannelFile='';
 const MAIN_PROFILE = 'principal';
@@ -49,11 +51,65 @@ async function checkUpdates(manual = true) {
   }
 }
 
+// Never install on ordinary exit: the professor might be supervising an exam.
 autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.autoInstallOnAppQuit = false;
 autoUpdater.allowPrerelease = true;
 autoUpdater.channel = 'beta';
 autoUpdater.allowDowngrade = false;
+async function installDownloadedUpdate() {
+  if (!downloadedUpdate) {
+    await dialog.showMessageBox(window, { type: 'info', title: 'Atualização', message: 'Nenhuma atualização baixada nesta sessão.' });
+    return;
+  }
+  const safety = updateSafety(atlas?.store);
+  if (!safety.safe) {
+    await dialog.showMessageBox(window, {
+      type: 'warning', title: 'Instalação adiada',
+      message: safety.reason === 'exam_in_progress' ? 'Existe uma prova aberta ou pausada.' :
+        safety.reason === 'unconfirmed_deliveries' ? `Existem ${safety.count} sessão(ões) com entrega não confirmada nos últimos 3 dias.` :
+        safety.reason === 'scheduled_soon' ? 'Uma prova está agendada para começar em breve.' :
+        'Não foi possível confirmar que os dados estão seguros.',
+      detail: 'Confira os envios pendentes no painel de resultados e as provas agendadas antes de instalar. A atualização permanece baixada.',
+    });
+    return;
+  }
+  // A snapshot is required before the updater can replace installed files.
+  // It remains in userData, separate from the Windows installation.
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const directory = atlas.store.backupDir;
+    fs.mkdirSync(directory, { recursive: true });
+    const tmp = path.join(directory, `antes-atualizacao-${stamp}.atlas.tmp`);
+    const target = path.join(directory, `antes-atualizacao-${stamp}.atlas`);
+    fs.writeFileSync(tmp, JSON.stringify(atlas.store.exportBackup()), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    fs.renameSync(tmp, target);
+  } catch (error) {
+    await dialog.showMessageBox(window, {
+      type: 'error', title: 'Atualização cancelada', message: 'Não foi possível salvar o backup preventivo.',
+      detail: error.message,
+    });
+    return;
+  }
+  // Recheck: an exam may have started while the backup was being created.
+  if (!updateSafety(atlas?.store).safe) {
+    await dialog.showMessageBox(window, { type: 'warning', title: 'Instalação adiada', message: 'Uma prova foi iniciada durante a preparação da atualização.' });
+    return;
+  }
+  try {
+    await atlas.close();
+    atlas = null;
+    app.isClosingAtlas = true;
+    autoUpdater.quitAndInstall(false, true);
+  } catch (error) {
+    dialog.showErrorBox('Falha ao instalar atualização', error.message);
+    // The database connection may already be closed; relaunch the same profile.
+    app.relaunch();
+    app.isClosingAtlas = true;
+    app.quit();
+  }
+}
+
 autoUpdater.on('update-available', async (info) => {
   const { response } = await dialog.showMessageBox(window, {
     type: 'info', title: 'Atualização do Atlas disponível',
@@ -64,19 +120,30 @@ autoUpdater.on('update-available', async (info) => {
 });
 autoUpdater.on('update-not-available', () => manualUpdateCheck && dialog.showMessageBox(window, { type: 'info', title: 'Atlas atualizado', message: 'Você já está usando a versão mais recente.' }));
 autoUpdater.on('update-downloaded', async (info) => {
+  downloadedUpdate = info;
+  const safety = updateSafety(atlas?.store);
+  if (!safety.safe) {
+    await dialog.showMessageBox(window, {
+      type: 'info', title: 'Atualização baixada — instalação adiada',
+      message: `A versão ${info.version} está pronta, mas existem provas ou entregas pendentes.`,
+      detail: 'O Atlas adia a instalação se existe prova aberta, sessões recentes sem entrega ou prova agendada para começar. Confira os resultados antes de instalar.',
+    });
+    return;
+  }
   const { response } = await dialog.showMessageBox(window, {
     type: 'info', title: 'Atualização pronta',
-    message: `A versão ${info.version} foi baixada.`, detail: 'Reinicie o Atlas para concluir a instalação.',
-    buttons: ['Reiniciar agora', 'Depois'], defaultId: 0, cancelId: 1,
+    message: `A versão ${info.version} foi baixada.`,
+    detail: 'Antes de instalar, o Atlas verifica novamente se não há provas abertas e salva um backup preventivo.',
+    buttons: ['Instalar agora', 'Depois'], defaultId: 1, cancelId: 1,
   });
-  if (response === 0) autoUpdater.quitAndInstall();
+  if (response === 0) await installDownloadedUpdate();
 });
 
 // O Windows pergunta sobre o Firewall só na primeira vez; se o professor cancelou, os alunos não conectam.
 function addFirewallRule() {
   return new Promise((resolve, reject) => {
     const exe = process.execPath.replace(/'/g, "''");
-    const script = `$ErrorActionPreference='Stop'; $e='${exe}'; Remove-NetFirewallRule -DisplayName 'Atlas' -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Atlas' -Direction Inbound -Action Allow -Program $e -Profile Any | Out-Null`;
+    const script = `$ErrorActionPreference='Stop'; $e='${exe}'; Remove-NetFirewallRule -DisplayName 'Atlas' -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Atlas' -Direction Inbound -Action Allow -Program $e -Profile Private | Out-Null`;
     const encoded = Buffer.from(script, 'utf16le').toString('base64');
     const outer = `$p = Start-Process -FilePath powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','${encoded}'; exit $p.ExitCode`;
     execFile('powershell.exe', ['-NoProfile', '-Command', outer], { windowsHide: true }, (error) => (error ? reject(error) : resolve()));
@@ -87,7 +154,7 @@ async function allowFirewall() {
   if (process.platform !== 'win32') return;
   try {
     await addFirewallRule();
-    await dialog.showMessageBox(window, { type: 'info', title: 'Firewall liberado', message: 'O Windows agora permite que os alunos conectem ao Atlas.' });
+    await dialog.showMessageBox(window, { type: 'info', title: 'Firewall liberado', message: 'O Atlas foi autorizado nas redes Privadas do Windows. Confirme o perfil da rede Wi-Fi da escola.' });
   } catch {
     await dialog.showMessageBox(window, { type: 'warning', title: 'Não foi possível liberar', message: 'A liberação precisa da autorização do administrador do Windows.', detail: 'Tente de novo e escolha “Sim” quando o Windows perguntar. Em computador da escola, peça ajuda à TI.' });
   }
@@ -186,6 +253,7 @@ async function start() {
       ...(process.platform === 'win32' ? [{ label: 'Liberar no Firewall do Windows', click: () => allowFirewall() }] : []),
       { label: 'Abrir pasta das cópias de provas', click: () => { fs.mkdirSync(exportDir, { recursive: true }); shell.openPath(exportDir); } },
       { label: 'Buscar atualizações', accelerator: 'Alt+U', click: () => checkUpdates() },
+      { label: 'Instalar atualização baixada', click: () => installDownloadedUpdate() },
       { label: 'Canal de atualizações', submenu: [
         {label:'Pré-lançamentos beta',type:'radio',checked:updateChannel==='beta',click:()=>{useUpdateChannel('beta');dialog.showMessageBox(window,{type:'info',title:'Canal beta selecionado',message:'O Atlas poderá oferecer versões de teste. Você pode voltar ao canal estável neste menu.'});}},
         {label:'Somente versões estáveis',type:'radio',checked:updateChannel==='stable',click:()=>{useUpdateChannel('stable');dialog.showMessageBox(window,{type:'info',title:'Canal estável selecionado',message:'O Atlas só buscará versões marcadas como estáveis.'});}},
@@ -218,7 +286,7 @@ async function start() {
     const { response } = await dialog.showMessageBox(window, {
       type: 'question', title: 'Conexão dos alunos', buttons: ['Liberar agora', 'Depois'], defaultId: 0, cancelId: 1,
       message: 'Permitir que os alunos conectem ao Atlas?',
-      detail: 'O Firewall do Windows costuma bloquear celulares e Chromebooks da sala. A liberação pede a autorização do administrador. Você pode refazer depois em Atlas › Liberar no Firewall do Windows.',
+      detail: 'A liberação pede autorização do administrador e vale apenas para redes Privadas do Windows. Você pode refazê-la no menu Atlas › Liberar no Firewall do Windows.',
     });
     if (response === 0) await allowFirewall();
   }

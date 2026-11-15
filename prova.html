@@ -7,6 +7,7 @@
     <title>Atlas — Prova</title>
     <link rel="stylesheet" href="/src/styles/base.css" />
     <link rel="stylesheet" href="/src/styles/prova.css" />
+    <link rel="stylesheet" href="/src/styles/reference-redesign.css" />
   </head>
   <body>
     <!-- 1. entrada -->
@@ -44,7 +45,7 @@
       <header class="topbar">
         <div class="topbar-inner exam-bar">
           <div class="grow">
-            <div id="exam-title" class="exam-title"></div>
+            <div class="row" style="gap:10px"><span class="atlas-brand-icon" aria-hidden="true">◇</span><div id="exam-title" class="exam-title"></div></div>
             <div class="caption exam-sub">
               <span id="save-state" class="save-state ok" role="status" aria-live="polite"><span class="dot"></span><span id="save-label">Tudo salvo</span></span>
               <span class="hide-s">·</span><span id="host" class="hide-s"></span>
@@ -52,7 +53,7 @@
           </div>
           <div class="who hide-s"><strong id="student-name"></strong><span id="student-meta" class="caption"></span></div>
           <button data-theme-toggle class="btn quiet sm" type="button">Tema</button>
-          <button id="submit" class="btn sm" type="button">Entregar prova</button>
+          <button id="submit" class="btn sm" type="button">Finalizar e entregar</button>
         </div>
       </header>
       <div class="hud">
@@ -68,10 +69,16 @@
       </div>
       <div id="banner" class="notice warn banner" role="alert" hidden></div>
       <main class="exam-layout">
-        <section id="q-card" class="card q-card" aria-live="polite"></section>
+        <div class="atlas-student-main">
+          <section id="q-card" class="card q-card" aria-live="polite"></section>
+          <div class="card stack-s atlas-student-scratch">
+            <div class="row between"><h2 class="headline">Rascunho pessoal</h2><span id="scratch-status" class="caption">Fica apenas neste aparelho</span></div>
+            <textarea id="scratch" rows="4" placeholder="Anote cálculos e ideias aqui. Não é enviado ao professor."></textarea>
+          </div>
+        </div>
         <aside class="side">
           <div class="card stack-s">
-            <div class="row between"><h2 class="headline">Progresso</h2><span id="pct" class="badge"></span></div>
+            <div class="row between"><h2 class="headline">Progresso da avaliação</h2><span id="pct" class="badge"></span></div>
             <div class="seg-bar" aria-hidden="true"><div id="seg-done"></div><div id="seg-flag"></div></div>
             <div class="legend">
               <div><b id="n-done">0</b><span>Respondidas</span></div>
@@ -80,12 +87,13 @@
             </div>
           </div>
           <div class="card stack-s">
-            <div class="row between"><h2 class="headline">Questões</h2><span id="n-total" class="caption"></span></div>
+            <div class="row between"><h2 class="headline">Mapa de respostas</h2><span id="n-total" class="caption"></span></div>
             <nav id="grid" class="q-grid" aria-label="Ir para a questão"></nav>
           </div>
-          <div class="card stack-s">
-            <div class="row between"><h2 class="headline">Rascunho</h2><span id="scratch-status" class="caption">Fica só neste aparelho</span></div>
-            <textarea id="scratch" rows="4" placeholder="Anote cálculos e ideias aqui. Não é enviado ao professor."></textarea>
+          <div class="card stack-s atlas-side-submit">
+            <h2 class="headline">Entrega da avaliação</h2>
+            <p class="caption">Confira as questões sem resposta e as que você marcou para revisão antes de finalizar.</p>
+            <button id="submit-side" class="btn" type="button">Finalizar e entregar prova</button>
           </div>
           <p class="caption keys hide-s"><kbd>←</kbd> <kbd>→</kbd> navegar · <kbd>1</kbd>–<kbd>9</kbd> alternativas · <kbd>R</kbd> revisar · <kbd>Esc</kbd> limpar</p>
         </aside>

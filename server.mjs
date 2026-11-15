@@ -12,6 +12,7 @@ import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs
 import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
 import { parseRosterRows } from './shared/roster.js';
 import { skillLabel } from './shared/skills.js';
+import { listLocalModels, generateLocalQuestion, reviewLocalQuestion } from './lib/local-ai.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -600,10 +601,39 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     }
     catch { throw new HttpError(422, 'invalid_spreadsheet', 'Não consegui ler esta planilha. Use um arquivo .xlsx.'); }
   });
+  // IA local opcional: rotas autenticadas e conexão restrita ao localhost.
+  route('GET', '/api/ai/local-models', { admin: true }, async () => {
+    const models = await listLocalModels();
+    return { available: models.length > 0, models, provider: 'Ollama local' };
+  });
+  route('POST', '/api/ai/descriptor-question', { admin: true }, async ({ req }) => {
+    limit(req, 'ai-descriptor', 10);
+    const input = await readJson(req);
+    try {
+      const result = await generateLocalQuestion({ skillId: input.skillId, model: input.model, context: input.context });
+      return { ...result, disclaimer: 'Rascunho: confira descritor, fatos, cálculos, gabarito e linguagem antes de usar.' };
+    } catch (error) { throw new HttpError(422, 'ai_question_unavailable', error.message); }
+  });
+  route('POST', '/api/ai/descriptor-review', { admin: true }, async ({ req }) => {
+    limit(req, 'ai-review', 15);
+    const input = await readJson(req);
+    try {
+      const report = await reviewLocalQuestion({ skillId: input.skillId, model: input.model, question: input.question });
+      return { ...report, disclaimer: 'Parecer automático provisório, não equivale à validação do Inep.' };
+    } catch (error) { throw new HttpError(422, 'ai_review_unavailable', error.message); }
+  });
   route('GET', '/api/question-bank', { admin: true }, () => ({ questions: store.listBankQuestions() }));
   route('POST', '/api/question-bank', { admin: true }, async ({ req }) => {
     try { return { question: store.saveBankQuestion(await readJson(req)) }; }
     catch (error) { throw new HttpError(400, error.code || 'invalid_question', error.message); }
+  });
+  route('PUT', '/api/question-bank/:id', { admin: true }, async ({ params, req }) => {
+    const input = await readJson(req);
+    let updated;
+    try { updated = store.updateBankQuestion(params.id, input); }
+    catch (error) { throw new HttpError(400, error.code || 'invalid_question', error.message); }
+    if (!updated) throw new HttpError(404, 'question_not_found', 'Questão não encontrada no banco.');
+    return { question: updated };
   });
   route('DELETE', '/api/question-bank/:id', { admin: true }, ({ params }) => { store.deleteBankQuestion(params.id); return { ok: true }; });
 

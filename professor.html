@@ -7,6 +7,7 @@
     <title>Atlas — Professor</title>
     <link rel="stylesheet" href="/src/styles/base.css" />
     <link rel="stylesheet" href="/src/styles/professor.css" />
+    <link rel="stylesheet" href="/src/styles/reference-redesign.css" />
   </head>
   <body>
     <main id="login" class="center-screen" hidden>
@@ -24,12 +25,13 @@
     <div id="app" hidden>
       <header class="topbar">
         <div class="topbar-inner">
-          <a class="brand" href="/">Atlas</a>
+          <a class="brand" href="/"><span class="atlas-brand-icon" aria-hidden="true">◇</span><span>Atlas <span class="atlas-brand-caption">Professor</span></span></a>
           <nav class="tabs-wrap" aria-label="Seções">
             <div class="segmented" role="tablist">
               <button role="tab" data-tab="turma">Turma</button>
               <button role="tab" data-tab="prova">Prova</button>
               <button role="tab" data-tab="banco">Banco</button>
+              <button role="tab" data-tab="descritores">Descritores</button>
               <button role="tab" data-tab="resultados">Resultados</button>
               <button role="tab" data-tab="ajuda">Ajuda</button>
             </div>

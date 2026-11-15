@@ -1,4 +1,5 @@
 import { api, ApiError } from './lib/api.js';
+import { answerFailure } from '../shared/answer-sync.js';
 import { $, h, clear, plural, toast } from './lib/dom.js';
 import { orderForStudent } from '../shared/shuffle.js';
 import { initializeThemeButton } from './lib/theme.js';
@@ -17,7 +18,7 @@ const contrastKey='atlas.highcontrast';
 
 const show = (id) => { for (const s of ['join', 'confirm', 'exam', 'done']) $('#' + s).hidden = s !== id; };
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
-const writeJson = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* armazenamento cheio ou bloqueado */ } };
+const writeJson = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } };
 
 // ---------- 1. entrada
 let joinTimer;
@@ -104,7 +105,10 @@ function beginSession(data, code, number) {
   state.paused = !!data.paused;
   state.answers = data.answers;
   state.pending = readJson(queueKey(data.session.id)) || {};
-  writeJson(SESSION_KEY, { code, number, sessionId: data.session.id, token: data.session.token });
+  state.blockedSync = false;
+  state.queuePersisted = true;
+  const sessionPersisted = writeJson(SESSION_KEY, { code, number, sessionId: data.session.id, token: data.session.token });
+  if (!sessionPersisted) toast('Este navegador bloqueou o armazenamento da sessão. Mantenha a prova aberta até entregar.');
   renderExam();
   if (data.timeEnded) lockExam('Seu tempo de prova terminou. Entregue as respostas já recebidas pelo Atlas.');
   else if (!state.paused) flush();
@@ -155,6 +159,7 @@ function renderExam() {
 
 function renderQuestion() {
   $('#submit').disabled=state.paused;
+  $('#submit-side').disabled=state.paused || state.closed;
   const total = state.questions.length;
   if (!total) {
     $('#hud-label').textContent = 'Prova em PDF';
@@ -183,10 +188,10 @@ function renderQuestion() {
         h('span',{class:'letter'},letter(i)),h('span',{},option))));
   } else {
     let timer;
-    control = q.type==='numeric' ? h('input', { type:'number',step:'any',name:q.id,placeholder:'Digite o valor',value:currentAnswer(q.id),disabled:state.closed||state.paused,'aria-labelledby':'q-text',oninput:(event)=>{clearTimeout(timer);const value=event.target.value;markSaving();timer=setTimeout(()=>saveTextAnswer(q.id,value),500);},onblur:(event)=>{clearTimeout(timer);if(event.target.value!==currentAnswer(q.id))saveTextAnswer(q.id,event.target.value);} }) : h('textarea', {
+    control = q.type==='numeric' ? h('input', { type:'number',step:'any',name:q.id,placeholder:'Digite o valor',value:currentAnswer(q.id),disabled:state.closed||state.paused,'aria-labelledby':'q-text',oninput:(event)=>{clearTimeout(timer);const value=event.target.value;setAnswer(q.id,value,true);markSaving();timer=setTimeout(()=>saveTextAnswer(q.id,value),500);},onblur:(event)=>{clearTimeout(timer);saveTextAnswer(q.id,event.target.value);} }) : h('textarea', {
       name: q.id, rows: 6, placeholder: 'Digite sua resposta', value: currentAnswer(q.id), disabled: state.closed || state.paused, 'aria-labelledby': 'q-text',
-      oninput: (event) => { clearTimeout(timer); const value = event.target.value; markSaving(); timer = setTimeout(() => saveTextAnswer(q.id, value), 500); },
-      onblur: (event) => { clearTimeout(timer); if (event.target.value !== currentAnswer(q.id)) saveTextAnswer(q.id, event.target.value); },
+      oninput: (event) => { clearTimeout(timer); const value = event.target.value; setAnswer(q.id, value, true); markSaving(); timer = setTimeout(() => saveTextAnswer(q.id, value), 500); },
+      onblur: (event) => { clearTimeout(timer); saveTextAnswer(q.id, event.target.value); },
     });
   }
   const flagged = state.flags.has(q.id);
@@ -319,7 +324,7 @@ $('#zoom-out').addEventListener('click', () => { zoom = pdf?.setZoom(zoom - 0.5)
 $('#doc-close').addEventListener('click', () => $('#doc-dialog').close());
 
 // ---------- 3. salvamento com fila local
-function setAnswer(qid, value) {
+function setAnswer(qid, value, deferRemote = false) {
   if (state.closed || state.paused) return;
   if (rehearsalId) {
     state.answers[qid] = value;
@@ -327,9 +332,13 @@ function setAnswer(qid, value) {
     return;
   }
   state.pending[qid] = value;
-  writeJson(queueKey(state.session.id), state.pending);
+  state.blockedSync = false;
+  state.queuePersisted = writeJson(queueKey(state.session.id), state.pending);
+  if (!state.queuePersisted) {
+    setStatus('pending', 'Armazenamento local indisponível: não feche a página até confirmar o envio.');
+  }
   updateProgress();
-  return flush();
+  if (!deferRemote) return flush();
 }
 
 async function saveChoice(qid, value) {
@@ -361,7 +370,7 @@ function feedbackIsCorrect(question, feedback) {
 async function saveTextAnswer(qid, value) {
   delete state.feedback[qid];
   setAnswer(qid, value);
-  if (!state.exam.feedback || !value.trim()) return;
+  if (!state.exam.feedback || !String(value).trim()) return;
   for (let i = 0; i < 40 && qid in state.pending; i++) await new Promise((resolve) => setTimeout(resolve, 100));
   if (!(qid in state.pending)) await requestFeedback(qid, value);
 }
@@ -378,10 +387,12 @@ function setStatus(kind, label) {
   el.className = `save-state ${kind}`;
   $('#save-label').textContent = label;
 }
-const markSaving = () => setStatus('', 'Salvando…');
+const markSaving = () => state.queuePersisted === false ?
+  setStatus('pending', 'Armazenamento local indisponível: não feche a prova até o envio confirmar.') :
+  setStatus('', 'Salvando…');
 
 async function flush() {
-  if (state.flushing || !state.session) return;
+  if (state.flushing || state.blockedSync || !state.session) return;
   state.flushing = true;
   clearTimeout(state.retryTimer);
   try {
@@ -394,20 +405,19 @@ async function flush() {
         if (state.pending[qid] === value) delete state.pending[qid];
         writeJson(queueKey(state.session.id), state.pending);
       } catch (error) {
-        if (error.code === 'exam_closed') { lockExam('O professor encerrou a prova. Suas respostas já salvas foram mantidas.'); return; }
-        if (error.code === 'exam_paused' || error.code === 'session_paused') {
-          setStatus('pending', 'Prova pausada — respostas aguardando retomada');
-          state.retryTimer = setTimeout(flush, 3000);
+        const failure = answerFailure(error);
+        const count = Object.keys(state.pending).length;
+        if (failure.action === 'locked') {
+          lockExam(failure.message);
+          setStatus('pending', `${count} resposta(s) não confirmada(s) — avise o professor`);
           return;
         }
-        if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 429) {
-          delete state.pending[qid]; // resposta recusada pelo servidor: não adianta repetir
-          writeJson(queueKey(state.session.id), state.pending);
-          setStatus('pending', 'Uma resposta não foi aceita');
-          continue;
+        if (failure.action === 'review') {
+          state.blockedSync = true;
+          setStatus('pending', failure.message);
+          return;
         }
-        const count = Object.keys(state.pending).length;
-        setStatus('pending', `Sem conexão — ${plural(count, 'resposta guardada', 'respostas guardadas')} neste aparelho`);
+        setStatus('pending', state.queuePersisted ? `${failure.message} (${count} pendente(s))` : `AVISO: armazenamento bloqueado; ${count} resposta(s) apenas em memória. Não feche a prova.`);
         state.retryTimer = setTimeout(flush, 3000);
         return;
       }
@@ -433,7 +443,7 @@ async function beat() {
     }
     else if (!result.examOpen) lockExam('O professor encerrou a prova.');
     else if (state.paused) { state.paused=false; $('#banner').hidden=true; renderQuestion(); }
-    if (Object.keys(state.pending).length) flush();
+    if (Object.keys(state.pending).length && !state.blockedSync) flush();
     flushAway();
   } catch { /* o indicador de salvamento já avisa sobre a conexão */ }
 }
@@ -526,6 +536,7 @@ function openSubmit() {
   dialog.showModal();
 }
 $('#submit').addEventListener('click', openSubmit);
+$('#submit-side').addEventListener('click', openSubmit);
 $('#submit-cancel').addEventListener('click', () => {
   dialog.close();
   const first = state.questions.findIndex((q) => !hasAnswer(currentAnswer(q.id)));
@@ -562,7 +573,12 @@ function finish(receipt) {
   clearTimeout(state.retryTimer);
   clearTimeout(away.timer);
   away.since = 0;
-  if (state.session) { for (const key of [queueKey(state.session.id), flagsKey(state.session.id), scratchKey(state.session.id)]) { try { localStorage.removeItem(key); } catch { /* ignore */ } } }
+  const hasUnconfirmedAnswers = state.session && Object.keys(readJson(queueKey(state.session.id)) || {}).length > 0;
+  if (state.session) {
+    for (const key of [flagsKey(state.session.id), scratchKey(state.session.id), ...(hasUnconfirmedAnswers ? [] : [queueKey(state.session.id)])]) {
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
+    }
+  }
   try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   state.session = null;
   $('#delivery-receipt').textContent = receipt
@@ -570,6 +586,9 @@ function finish(receipt) {
     : '';
   $('#review-actions').hidden = !reviewCredentials;
   show('done');
+  if (hasUnconfirmedAnswers) {
+    $('#delivery-receipt').textContent += ' — ATENÇÃO: existem respostas guardadas neste aparelho que não foram confirmadas pelo servidor. Avise o professor.';
+  }
 }
 
 // ---------- início: tenta retomar uma prova em andamento neste aparelho
@@ -603,6 +622,12 @@ function finish(receipt) {
     catch (error) {
       if (error.code === 'already_submitted') { finish(); return; }
       if (error.code === 'network') { show('join'); $('#join-status').textContent = 'Sem conexão com o servidor. Verifique o Wi‑Fi da sala.'; setTimeout(boot, 3000); return; }
+      const unsent = Object.keys(readJson(queueKey(saved.sessionId)) || {}).length;
+      if (unsent) {
+        show('join');
+        $('#join-status').textContent = `Esta sessão tem ${unsent} resposta(s) local(is) não confirmada(s). Não limpe os dados do navegador nem saia da rede. Solicite ajuda ao professor. (${error.message})`;
+        return;
+      }
       try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
     }
   }

@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural, formatScore } from '../lib/dom.js';
+import { finalAnswersForItem } from '../../shared/assessment-results.js';
 import { skillLabel } from '../../shared/skills.js';
 
 let root;
@@ -43,13 +44,33 @@ const badge = (r) => r.status === 'submitted' ? h('span', { class: 'badge ok' },
 
 function render() {
   const d = state.data;
+  const header = h('div', { class: 'atlas-results-heading' },
+    h('div', { class: 'row' }, h('h1', { class: 'title' }, 'Resultados'), h('span', { class: 'badge ok' }, 'Ao vivo')),
+    state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:320px', onchange: (event) => {
+      state.examId = event.target.value; state.open.clear(); state.sig = ''; refresh(true);
+    } }, state.exams.map((exam) => h('option', { value: exam.id, selected: exam.id === state.examId }, exam.title))));
+  if (!d) {
+    clear(root, h('div', { class: 'stack' }, header, h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')));
+    return;
+  }
+  const left = h('div', { class: 'atlas-results-column' },
+    d.results.length ? insights(d) : null,
+    d.results.length ? skillInsights(d) : null,
+    d.results.length ? missingKeys(d) : null,
+    d.results.length ? batchCorrection(d) : null,
+    d.results.length ? comparePanel() : null,
+    !d.results.length && h('div', { class: 'card' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.'));
+  const right = h('aside', { class: 'atlas-results-column' },
+    h('div', { class: 'card stack-s' },
+      h('div', { class: 'row between' }, h('h2', { class: 'headline' }, 'Alunos da turma'), h('span', { class: 'caption' }, `${d.results.length} participantes`)),
+      d.results.length ? h('div', { class: 'list' }, d.results.map((result) => row(result, d.exam))) : h('p', { class: 'caption' }, 'Sem participantes registrados.')),
+    pendingStudents(d),
+    schoolExport(d.exam));
   clear(root, h('div', { class: 'stack' },
-    h('div', { class: 'row between' },
-      h('h1', { class: 'title' }, 'Resultados'),
-      state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:280px', onchange: (e) => { state.examId = e.target.value; state.open.clear(); state.sig = ''; refresh(true); } },
-        state.exams.map((e) => h('option', { value: e.id, selected: e.id === state.examId }, e.title)))),
-    !d ? h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')
-      : [summary(d), awayNotice(d), pendingStudents(d), !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'), d.results.length ? stats(d) : null, d.results.length ? skillInsights(d) : null, d.results.length ? insights(d) : null, d.results.length ? missingKeys(d) : null, d.results.length ? batchCorrection(d) : null, d.results.length ? comparePanel() : null, d.results.length ? h('div', { class: 'list' }, d.results.map((r) => row(r, d.exam))) : h('p', { class: 'sub' }, d.exam.status === 'open' ? 'Aguardando os alunos entrarem…' : 'Nenhum aluno respondeu esta prova.')]));
+    header, summary(d), awayNotice(d),
+    !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'),
+    stats(d),
+    h('div', { class: 'atlas-results-grid' }, left, right)));
 }
 
 function awayNotice(d) {
@@ -71,8 +92,7 @@ function summary(d) {
       h('a', { class: 'btn secondary', href: `/api/exams/${d.exam.id}/export.csv` }, 'Baixar CSV'),
       h('a', { class: 'btn secondary', href: `/api/exams/${d.exam.id}/export.xlsx` }, 'Baixar XLSX'),
       h('a', { class: 'btn quiet', href: `/api/exams/${d.exam.id}/report.pdf` }, 'Relatório para impressão')),
-    d.exam.status === 'closed' && d.exam.questions.length > 0 && [annulmentForm(d.exam), releaseForm(d.exam)],
-    schoolExport(d.exam));
+    d.exam.status === 'closed' && d.exam.questions.length > 0 && [annulmentForm(d.exam), releaseForm(d.exam)]);
 }
 
 function schoolExport(exam) {
@@ -205,7 +225,7 @@ function skillInsights(d) {
   const groups = new Map();
   for (const q of d.exam.questions) {
     if (!q.skill || !(['choice','multi','numeric'].includes(q.type) && q.correct !== undefined)) continue;
-    const answered = d.results.map((r) => r.answers[q.id]).filter((answer) => answer !== undefined && answer !== null && String(answer).trim() !== '');
+    const answered = finalAnswersForItem(d.results, q.id);
     const item = groups.get(q.skill) || { total: 0, correct: 0 };
     item.total += answered.length;
     item.correct += answered.filter((answer) => {
@@ -218,7 +238,7 @@ function skillInsights(d) {
     groups.set(q.skill, item);
   }
   if (!groups.size) return null;
-  return h('details', { class: 'card insights' }, h('summary', { class: 'headline' }, 'Relatório por habilidade SAEB'),
+  return h('details', { class: 'card insights', open: true }, h('summary', { class: 'headline' }, 'Relatório por habilidade SAEB · somente provas entregues'),
     h('div', { class: 'stack-s', style: 'margin-top:16px' }, [...groups].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR', { numeric: true })).map(([skill, item]) => {
       const pct = item.total ? Math.round(item.correct / item.total * 100) : null;
       return h('div', { class: 'bar-row' }, h('div', { class: 'row between caption' }, h('strong', {}, skillLabel(skill) || skill), h('span', {}, pct === null ? 'Sem respostas' : `${pct}% · ${item.correct}/${item.total}`)), h('div', { class: 'progress' }, h('div', { style: `width:${pct || 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })));
@@ -294,16 +314,17 @@ function stats(d) {
   const avg = sent.length ? sent.reduce((t, r) => t + ratio(r), 0) / sent.length : null;
   const max = d.results[0]?.max ?? 0;
   return h('div', { class: 'stats' },
-    cell('Enviadas', `${sent.length}/${d.results.length}`),
-    cell('Online agora', String(d.results.filter((r) => r.online).length)),
-    cell('Média', avg === null ? '—' : formatScore(Math.round(avg * max * 100) / 100), avg === null ? 'aguardando envios' : `de ${formatScore(max)} · ${Math.round(avg * 100)}%`));
+    cell('Enviadas', `${sent.length}/${(d.participants||[]).length || d.results.length}`, 'Submissões recebidas'),
+    cell('Online agora', String(d.results.filter((r) => r.online).length), 'Dispositivos conectados'),
+    cell('Média da turma', avg === null ? '—' : formatScore(Math.round(avg * max * 100) / 100), avg === null ? 'Aguardando envios' : `de ${formatScore(max)} · ${Math.round(avg * 100)}%`),
+    cell('Pendentes', String((d.participants||[]).filter((participant) => !sent.some((s) => s.number === participant.number)).length), 'Alunos sem entrega'));
 }
 
 // Acerto por questão (só para as que têm gabarito): mostra o que a turma não aprendeu.
 function insights(d) {
   const isObjective=(q)=>['choice','multi','numeric'].includes(q.type)&&q.correct!==undefined;
   const rows = d.exam.questions.map((q, i) => ({ q, i })).filter(({ q }) => isObjective(q)).map(({ q, i }) => {
-    const given = d.results.map((r) => r.answers[q.id]).filter((answer)=>answer!==undefined&&answer!==null&&String(answer).trim()!=='');
+    const given = finalAnswersForItem(d.results, q.id);
     const isCorrect=(a)=>q.type==='choice'?a===q.correct:q.type==='numeric'?Number.isFinite(Number(String(a).replace(',','.')))&&Math.abs(Number(String(a).replace(',','.'))-Number(q.correct))<=(q.tolerance||0):(()=>{let v=a;if(typeof v==='string'){try{v=JSON.parse(v)}catch{v=[]}}return Array.isArray(v)&&v.length===q.correct.length&&[...v].sort().every((x,j)=>x===[...q.correct].sort()[j]);})();
     const right = given.filter(isCorrect).length;
     const wrong = {};
@@ -313,7 +334,7 @@ function insights(d) {
   });
   if (!rows.length || !rows.some((r) => r.total)) return null;
   return h('details', { class: 'card insights' },
-    h('summary', { class: 'headline' }, 'Desempenho por questão'),
+    h('summary', { class: 'headline' }, 'Desempenho por questão · somente provas entregues'),
     h('div', { class: 'stack-s', style: 'margin-top:16px' }, rows.map(({ i, q, total, pct, top }) => h('div', { class: 'bar-row' },
       h('div', { class: 'row between caption' }, h('span', {}, `Q${i + 1} · ${q.text.length > 60 ? q.text.slice(0, 60) + '…' : q.text}`), h('span', { class: 'score' }, pct === null ? '—' : `${pct}%`)),
       h('div', { class: 'progress' }, h('div', { style: `width:${pct ?? 0}%;background:${pct !== null && pct < 50 ? 'var(--warn)' : 'var(--ok)'}` })),

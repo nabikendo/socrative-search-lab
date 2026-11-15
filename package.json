@@ -1,6 +1,6 @@
 {
   "name": "atlas-provas",
-  "version": "1.3.0",
+  "version": "1.3.3",
   "private": true,
   "type": "module",
   "description": "Atlas: provas em rede local, sem Internet durante a aula.",
@@ -56,8 +56,8 @@
       "provider": "github",
       "owner": "nabikendo",
       "repo": "socrative-search-lab",
-      "channel": "beta",
-      "releaseType": "prerelease"
+      "channel": "latest",
+      "releaseType": "release"
     },
     "generateUpdatesFilesForAllChannels": true,
     "asar": true,

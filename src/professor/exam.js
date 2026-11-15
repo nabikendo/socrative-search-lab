@@ -16,7 +16,35 @@ export async function activate() {
   state.classes = (await api('/api/classes')).classes;
   await loadList();
   const open = state.exams.find((e) => e.status === 'open');
-  await select(state.model?.id && state.exams.some((e) => e.id === state.model.id) ? state.model.id : (open || state.exams[0])?.id);
+  const jumpId = sessionStorage.getItem('atlas.jumpExam');
+  if (jumpId) sessionStorage.removeItem('atlas.jumpExam');
+  const initialId = jumpId && state.exams.some((entry) => entry.id === jumpId) ? jumpId :
+    (state.model?.id && state.exams.some((entry) => entry.id === state.model.id) ? state.model.id : (open || state.exams[0])?.id);
+  await select(initialId);
+  const pendingBankQuestion = sessionStorage.getItem('atlas.bank.pending');
+  if (pendingBankQuestion) {
+    sessionStorage.removeItem('atlas.bank.pending');
+    try {
+      const question = JSON.parse(pendingBankQuestion);
+      if (state.model.locked || ['open','paused'].includes(state.model.status)) {
+        state.model = blank();
+        state.model.title = 'Nova avaliação — ' + (question.topic || 'questões do banco');
+        toast('A prova anterior está bloqueada. Uma nova avaliação foi criada para receber a questão.');
+      }
+      const m = state.model;
+      {
+        m.pdfOnly = false;
+        if (!m.id && m.questions.length === 1 && !m.questions[0].text) m.questions = [];
+        m.questions.push({ ...question, id: questionId(),
+          correctIndex: typeof question.correct === 'string' && question.options ? question.options.indexOf(question.correct) : null,
+          correctIndexes: Array.isArray(question.correct) ? question.correct.map((answer) => question.options.indexOf(answer)).filter((index) => index >= 0) : [],
+          numericAnswer: question.type === 'numeric' ? question.correct : '' });
+        state.dirty = true;
+        render();
+        toast('Questão incluída no editor. Revise e salve a prova.');
+      }
+    } catch { toast('Não foi possível transferir a questão do banco.'); }
+  }
   timer = setInterval(pollLive, 5000);
 }
 export function deactivate() { clearInterval(timer); }
@@ -35,6 +63,17 @@ const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, d
   pdfOnly: true, classId: state.classes[0]?.id || null, feedback: false, questions: [newQuestion('choice')] });
 function newQuestion(type) {
   return { id: questionId(), type, text: '', options: ['choice','multi'].includes(type) ? ['', ''] : [], correctIndex: null, correctIndexes:[], numericAnswer:'', tolerance:0, image:'', imageAlt:'', topic:'',difficulty:'',rubric:[],weight: 1 };
+}
+function appendManualQuestion(model, type) {
+  // PDF-only mode deliberately hides the editable questions. Switch modes
+  // before appending; otherwise the new item exists in memory but stays hidden.
+  if (model.pdfOnly) {
+    model.pdfOnly = false;
+    model.questions = [];
+  }
+  model.questions.push(newQuestion(type));
+  touch();
+  render();
 }
 const fromServer = (exam, locked) => ({ ...exam, locked, pdfOnly: !exam.questions.length, questions: exam.questions.map((q) => ({ ...q, correctIndex: typeof q.correct==='string'&&q.options?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((answer)=>q.options.indexOf(answer)).filter((i)=>i>=0):[], numericAnswer:q.type==='numeric'?q.correct:'', tolerance:q.tolerance ?? 0 })) });
 function payload() {
@@ -93,12 +132,12 @@ function render() {
   const isScheduled = m.status === 'scheduled';
   clear(root, h('div', { class: 'stack' },
     h('div', { class: 'row between' },
-      h('h1', { class: 'title' }, 'Prova'),
+      h('h1', { class: 'title' }, 'Provas e avaliações'),
       h('div', { class: 'row' },
         h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:260px', onchange: guard(async (ev) => { await select(ev.target.value || null); }) },
           state.exams.map((e) => h('option', { value: e.id, selected: e.id === m.id }, e.title + (e.status === 'open' ? ' ●' : ''))),
           !m.id && h('option', { value: '', selected: true }, 'Nova prova')),
-        h('button', { class: 'btn secondary', onclick: () => { state.model = blank(); state.dirty = false; render(); } }, 'Nova'))),
+        h('button', { class: 'btn secondary', onclick: () => { state.model = blank(); state.dirty = false; render(); } }, '+ Nova prova'))),
 
     isOpen && openBanner(m),
     m.original && h('p', { class: 'notice' }, `${m.original.kind === 'second-call' ? 'Segunda chamada' : 'Versão de'} · ${m.original.title}`),
@@ -107,7 +146,10 @@ function render() {
     m.id && !isOpen && !isPaused && scheduleCard(m),
     m.locked && h('div', { class: 'notice' }, 'Esta prova já tem respostas, então as questões estão travadas. Para mudar algo, duplique a prova.'),
 
+    h('div', { class: 'atlas-exam-workspace' },
+      h('div', { class: 'atlas-exam-config' },
     h('div', { class: 'card stack-s' },
+      h('h2', { class: 'headline' }, 'Configurações da avaliação'),
       h('label', { class: 'field' }, h('span', {}, 'Título'), h('input', { value: m.title, placeholder: 'Ex.: Ligações químicas — 1º bimestre', oninput: (e) => { m.title = e.target.value; touch(); } })),
       h('label', { class: 'field' }, h('span', {}, 'Turma'), h('select', { value: m.classId || '', disabled: m.locked, onchange: (e) => { m.classId = e.target.value || null; touch(); } }, h('option', { value: '' }, 'Lista geral'), state.classes.map((c) => h('option', { value: c.id }, c.name)))),
       h('label', { class: 'option', style: 'border-radius:10px' },
@@ -115,6 +157,10 @@ function render() {
         h('span', {}, h('strong', {}, 'Embaralhar para cada aluno'), h('span', { class: 'caption', style: 'display:block' }, 'Cada aluno vê as questões e as alternativas em ordem diferente. Evite alternativas como “todas as anteriores”.'))),
       h('label', { class: 'option', style: 'border-radius:10px' }, h('input', { type: 'checkbox', checked: !!m.feedback, disabled: m.locked, onchange: (e) => { m.feedback = e.target.checked; touch(); } }), h('span', {}, h('strong', {}, 'Mostrar feedback após cada questão'), h('span', { class: 'caption', style: 'display:block' }, 'Mostra gabarito e explicação depois que o aluno responder.')))),
 
+      ),
+      h('div', { class: 'atlas-exam-questions' },
+        h('div', { class: 'atlas-section-title' }, h('h2', {}, 'Caderno de questões'),
+          h('span', { class: 'caption' }, m.pdfOnly ? 'Documento PDF' : `${m.questions.length} questão(ões)`)),
     !m.pdfOnly && h('div', { class: `question-layout${m.document?.kind === 'pdf' ? ' with-original' : ''}` },
       h('div', { class: 'stack' }, m.questions.map((q, i) => questionCard(q, i))),
       m.document?.kind === 'pdf' && h('details', { class: 'card', ontoggle: async (event) => {
@@ -134,11 +180,11 @@ function render() {
         h('div', { class: 'original-pdf', 'aria-label': 'PDF original da prova' }))),
 
     !m.locked && h('div', { class: 'row' },
-      h('button', { class: 'btn secondary', onclick: () => { m.questions.push(newQuestion('choice')); touch(); render(); } }, 'Adicionar questão'),
-      h('button', { class: 'btn quiet', onclick: () => { m.questions.push(newQuestion('text')); touch(); render(); } }, 'Questão aberta')),
+      h('button', { class: 'btn secondary', onclick: () => { appendManualQuestion(m, 'choice'); } }, 'Adicionar questão'),
+      h('button', { class: 'btn quiet', onclick: () => { appendManualQuestion(m, 'text'); } }, 'Questão aberta')),
     !m.locked && pdfOnlyOption(m),
     !m.locked && !m.pdfOnly && quickText(m),
-    documentCard(m),
+    documentCard(m))),
 
     state.error && h('p', { class: 'error', role: 'alert' }, state.error),
     h('div', { class: 'row' },
@@ -312,7 +358,7 @@ function questionCard(q, index) {
       q.image&&h('img',{src:q.image,alt:q.imageAlt||'Imagem da questão',style:'max-width:100%;max-height:280px;object-fit:contain;border-radius:12px'}),
       q.image&&h('div',{class:'row'},h('label',{class:'field grow'},h('span',{},'Descrição acessível da imagem'),h('input',{value:q.imageAlt||'',disabled:lock,oninput:(e)=>{q.imageAlt=e.target.value;touch();}})),!lock&&h('button',{class:'btn quiet',onclick:()=>{q.image='';q.imageAlt='';touch();render();}},'Remover imagem'))),
     h('div', { class: 'row' },
-      h('label', { class: 'field grow' }, h('span', {}, 'Habilidade SAEB de Matemática'), h('select', { value: q.skill || '', disabled: lock, onchange: (e) => { q.skill = e.target.value; touch(); } },
+      h('label', { class: 'field grow' }, h('span', {}, 'Descritor SAEB (Matemática ou Língua Portuguesa)'), h('select', { value: q.skill || '', disabled: lock, onchange: (e) => { q.skill = e.target.value; touch(); } },
         h('option', { value: '' }, 'Sem habilidade vinculada'),
         q.skill && /^D\d{1,2}$/.test(q.skill) && h('option', { value: q.skill }, skillLabel(q.skill)),
         ...SAEB_LEVELS.map((level) => h('optgroup', { label: level.label }, SAEB_SKILLS.filter((item) => item.id.startsWith(`${level.id}-`)).map((item) => h('option', { value: item.id }, item.label)))))),
