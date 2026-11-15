@@ -106,7 +106,9 @@ function beginSession(data, code, number) {
   state.answers = data.answers;
   state.pending = readJson(queueKey(data.session.id)) || {};
   state.blockedSync = false;
-  writeJson(SESSION_KEY, { code, number, sessionId: data.session.id, token: data.session.token });
+  state.queuePersisted = true;
+  const sessionPersisted = writeJson(SESSION_KEY, { code, number, sessionId: data.session.id, token: data.session.token });
+  if (!sessionPersisted) toast('Este navegador bloqueou o armazenamento da sessão. Mantenha a prova aberta até entregar.');
   renderExam();
   if (data.timeEnded) lockExam('Seu tempo de prova terminou. Entregue as respostas já recebidas pelo Atlas.');
   else if (!state.paused) flush();
@@ -331,8 +333,9 @@ function setAnswer(qid, value, deferRemote = false) {
   }
   state.pending[qid] = value;
   state.blockedSync = false;
-  if (!writeJson(queueKey(state.session.id), state.pending)) {
-    setStatus('pending', 'Armazenamento do aparelho indisponível. Não saia da prova; as respostas ainda não estão confirmadas.');
+  state.queuePersisted = writeJson(queueKey(state.session.id), state.pending);
+  if (!state.queuePersisted) {
+    setStatus('pending', 'Armazenamento local indisponível: não feche a página até confirmar o envio.');
   }
   updateProgress();
   if (!deferRemote) return flush();
@@ -367,7 +370,7 @@ function feedbackIsCorrect(question, feedback) {
 async function saveTextAnswer(qid, value) {
   delete state.feedback[qid];
   setAnswer(qid, value);
-  if (!state.exam.feedback || !value.trim()) return;
+  if (!state.exam.feedback || !String(value).trim()) return;
   for (let i = 0; i < 40 && qid in state.pending; i++) await new Promise((resolve) => setTimeout(resolve, 100));
   if (!(qid in state.pending)) await requestFeedback(qid, value);
 }
@@ -412,7 +415,7 @@ async function flush() {
           setStatus('pending', failure.message);
           return;
         }
-        setStatus('pending', `${failure.message} (${count} pendente(s))`);
+        setStatus('pending', state.queuePersisted ? `${failure.message} (${count} pendente(s))` : `AVISO: armazenamento bloqueado; ${count} resposta(s) apenas em memória. Não feche a prova.`);
         state.retryTimer = setTimeout(flush, 3000);
         return;
       }
