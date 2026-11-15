@@ -132,16 +132,12 @@ jobs:
             $notes = @"
           Atlas $version — versão estável Windows (64 bits).
 
-          Correções de confiabilidade e usabilidade:
-          - Edição atômica do Banco de Questões preservando imagens, rubricas e favoritos
-          - Questões adicionadas passam a aparecer no editor mesmo após iniciar no modo PDF
-          - Estatísticas finais consideram somente provas entregues
-          - Respostas recusadas ou desconectadas são mantidas na fila do dispositivo; aviso para erro de armazenamento
-          - Bloqueio da instalação de atualizações com prova ativa, sessões recentes sem entrega ou agendamento iminente
-          - Regra do Firewall restrita a redes privadas
-          - Limpeza de arquivos anexados substituídos ou removidos
+          Correção importante:
+          - As abas Prova, Banco, Descritores, Resultados e Ajuda ficavam em branco na versão 1.3.3 (só a aba Turma aparecia)
+          - O painel agora cria a seção que faltava e mostra uma mensagem na própria aba se algo falhar ao carregar, em vez de deixá-la vazia
+          - Novo teste automático confere que toda aba tem botão e seção na página
 
-          Inclui a interface renovada, o catálogo SAEB e a geração de questões por regras/IA local opcional.
+          Inclui tudo da 1.3.3: interface renovada, catálogo SAEB, proteção de atualizações com prova ativa e regra do Firewall só para redes privadas.
           Versão não assinada digitalmente. Testes automáticos não substituem homologação presencial em sala.
           "@
             gh release create $tag @files --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --latest --title "Atlas $version para Windows" --notes $notes

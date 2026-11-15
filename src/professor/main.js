@@ -1,5 +1,5 @@
 import { api } from '../lib/api.js';
-import { $, $$ } from '../lib/dom.js';
+import { $, $$, h, clear } from '../lib/dom.js';
 import { initializeThemeButton } from '../lib/theme.js';
 import * as roster from './roster.js';
 import * as exam from './exam.js';
@@ -9,6 +9,20 @@ import * as bank from './bank.js';
 import * as descriptors from './descriptor-lab.js';
 
 const tabs = { turma: roster, prova: exam, banco: bank, descritores: descriptors, resultados: results, ajuda: help };
+
+// Cada aba precisa de sua seção no HTML. Se alguma faltar, cria-a em vez de quebrar todas as outras abas.
+for (const name of Object.keys(tabs)) {
+  if ($(`#tab-${name}`)) continue;
+  const section = document.createElement('section');
+  section.id = `tab-${name}`;
+  section.hidden = true;
+  $('#app main').append(section);
+}
+
+function showTabError(name, error) {
+  console.error(`Aba ${name}:`, error);
+  clear($(`#tab-${name}`), h('div', { class: 'notice danger', role: 'alert' }, `Não consegui carregar esta aba: ${error?.message || 'erro inesperado'}. Feche e abra o Atlas; se continuar, veja Ajuda › Testar a conexão.`));
+}
 initializeThemeButton();
 let mounted = false;
 let active = null;
@@ -39,7 +53,8 @@ function openTab(name) {
   for (const key of Object.keys(tabs)) $(`#tab-${key}`).hidden = key !== name;
   active = tabs[name];
   history.replaceState(null, '', `#${name}`);
-  active.activate?.();
+  // um erro ao carregar uma aba aparece nela, em vez de deixá-la em branco
+  Promise.resolve().then(() => active.activate?.()).catch((error) => showTabError(name, error));
 }
 
 for (const button of $$('[data-tab]')) button.addEventListener('click', () => openTab(button.dataset.tab));
