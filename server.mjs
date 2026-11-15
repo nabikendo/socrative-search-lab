@@ -12,7 +12,7 @@ import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs
 import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
 import { parseRosterRows } from './shared/roster.js';
 import { skillLabel } from './shared/skills.js';
-import { listLocalModels, generateLocalQuestion } from './lib/local-ai.mjs';
+import { listLocalModels, generateLocalQuestion, reviewLocalQuestion } from './lib/local-ai.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -613,6 +613,14 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       const result = await generateLocalQuestion({ skillId: input.skillId, model: input.model, context: input.context });
       return { ...result, disclaimer: 'Rascunho: confira descritor, fatos, cálculos, gabarito e linguagem antes de usar.' };
     } catch (error) { throw new HttpError(422, 'ai_question_unavailable', error.message); }
+  });
+  route('POST', '/api/ai/descriptor-review', { admin: true }, async ({ req }) => {
+    limit(req, 'ai-review', 15);
+    const input = await readJson(req);
+    try {
+      const report = await reviewLocalQuestion({ skillId: input.skillId, model: input.model, question: input.question });
+      return { ...report, disclaimer: 'Parecer automático provisório, não equivale à validação do Inep.' };
+    } catch (error) { throw new HttpError(422, 'ai_review_unavailable', error.message); }
   });
   route('GET', '/api/question-bank', { admin: true }, () => ({ questions: store.listBankQuestions() }));
   route('POST', '/api/question-bank', { admin: true }, async ({ req }) => {
