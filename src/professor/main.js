@@ -6,8 +6,9 @@ import * as exam from './exam.js';
 import * as results from './results.js';
 import * as help from './help.js';
 import * as bank from './bank.js';
+import * as descriptors from './descriptor-lab.js';
 
-const tabs = { turma: roster, prova: exam, banco: bank, resultados: results, ajuda: help };
+const tabs = { turma: roster, prova: exam, banco: bank, descritores: descriptors, resultados: results, ajuda: help };
 initializeThemeButton();
 let mounted = false;
 let active = null;
