@@ -512,3 +512,42 @@ test('cópias automáticas: mantém só as 40 mais recentes', async () => {
     // o app e a pasta temporária são liberados por await using, nessa ordem
   }
 });
+
+
+test('edição do banco é atômica: preserva imagem, rubrica, ID e gabarito', async () => {
+  const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL7nAAAAABJRU5ErkJggg==';
+  const original={
+    type:'choice',text:'Questão original com imagem',options:['A','B'],correct:'B',
+    image,imageAlt:'Diagrama auxiliar',rubric:[{label:'Completa',description:'Justifica a escolha.',score:1}],
+    skill:'SAEB3-D16',topic:'Porcentagem',weight:1,
+  };
+  const created=await call('/api/question-bank',{method:'POST',cookie:admin,body:original});
+  assert.equal(created.status,200);
+  const entry=created.data.question;
+  assert.ok(entry.bankId);
+  assert.equal(entry.image,image);
+  const endpoint=`/api/question-bank/${entry.bankId}`;
+
+  const unauthorized=await call(endpoint,{method:'PUT',body:{...entry,text:'Alteração sem PIN'}});
+  assert.equal(unauthorized.status,401);
+  const invalid=await call(endpoint,{method:'PUT',cookie:admin,body:{...entry,text:'Incompleta',options:['A']}});
+  assert.equal(invalid.status,400);
+  assert.equal((await call('/api/question-bank',{cookie:admin})).data.questions.find(x=>x.bankId===entry.bankId).text,entry.text);
+
+  const updated=await call(endpoint,{method:'PUT',cookie:admin,body:{...entry,text:'Questão revisada',options:['B','C'],correct:'C'}});
+  assert.equal(updated.status,200);
+  assert.equal(updated.data.question.bankId,entry.bankId);
+  assert.equal(updated.data.question.id,entry.id);
+  assert.equal(updated.data.question.createdAt,entry.createdAt);
+  assert.equal(updated.data.question.image,image);
+  assert.equal(updated.data.question.imageAlt,'Diagrama auxiliar');
+  assert.deepEqual(updated.data.question.rubric,entry.rubric);
+  assert.equal(updated.data.question.correct,'C');
+  assert.equal(updated.data.question.text,'Questão revisada');
+  const saved=(await call('/api/question-bank',{cookie:admin})).data.questions.filter(x=>x.bankId===entry.bankId);
+  assert.equal(saved.length,1,'a edição não cria cópia nem elimina a questão');
+  assert.equal(saved[0].text,'Questão revisada');
+  const absent=await call('/api/question-bank/b-inexistente',{method:'PUT',cookie:admin,body:entry});
+  assert.equal(absent.status,404);
+  await call(endpoint,{method:'DELETE',cookie:admin});
+});
