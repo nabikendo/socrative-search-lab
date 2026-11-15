@@ -54,6 +54,16 @@ Você não precisa usar terminal, comandos nem saber programar.
 
 O instalador já inclui tudo e funciona **sem Internet**. Para atualizar, veja a seção 8.
 
+### Celular Android: aplicativo do aluno e do professor
+
+Na página **[Releases](../../releases/latest)**, baixe **`Atlas-Android-…apk`** e instale (o Android pede para permitir a instalação de fontes desconhecidas). O aplicativo **não substitui o computador**: o Atlas continua rodando no computador do professor, e o celular só abre a prova ou o painel.
+
+1. Conecte o celular ao Wi‑Fi do professor e abra o **Atlas**.
+2. Toque em **Procurar na rede**: o aplicativo acha o computador do professor sozinho (ou digite o endereço mostrado na tela).
+3. **Entrar na prova (aluno)** abre a prova; **Testar a conexão** confere a rede; **Painel do professor** abre o painel (PIN, resultados, downloads de planilha).
+
+A tela fica acesa durante a prova, e o aviso de saída da página funciona normalmente (sair do aplicativo conta como sair da prova). O aplicativo só abre páginas do computador do professor. Requer Android 8 ou mais novo.
+
 ### Outros sistemas (ou Windows sem instalador): pacote pronto
 
 1. Abra a página **[Releases](../../releases/latest)** deste repositório (barra lateral direita, no GitHub).
@@ -270,6 +280,10 @@ git tag v1.1.0 && git push origin v1.1.0
 ```
 
 O GitHub Actions (`.github/workflows/pacotes.yml`) roda os testes, monta os pacotes para Windows, Mac (Apple e Intel) e Linux, com o Node.js dentro, e os anexa à página Releases. Também dá para rodar manualmente em **Actions → Pacotes prontos para usar → Run workflow**.
+
+### Publicar o aplicativo Android
+
+O projeto fica em `android/` (Java, sem bibliotecas externas) e é compilado por `.github/workflows/android.yml` a cada mudança nessa pasta. Para anexar o APK à release da versão do `package.json`, use `[publish atlas apk]` na mensagem do commit. A assinatura vem dos segredos `ATLAS_KEYSTORE_B64` e `ATLAS_KEYSTORE_PASSWORD` do repositório; guarde uma cópia da chave, pois sem ela as próximas versões não instalam por cima das anteriores.
 
 ### Publicar o instalador do Windows
 
