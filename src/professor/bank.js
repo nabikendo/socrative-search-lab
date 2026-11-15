@@ -171,6 +171,7 @@ function render() {
         h('p',{class:'sub'},filters.mode==='exams'?'Cadernos e provas salvos no computador do professor.':'Questões reais cadastradas no Atlas, disponíveis para reutilização em novas provas.')),
       h('div', { class:'row' },
         h('button',{class:'btn secondary',onclick:()=>{ goToExam(); toast('Na aba Prova, anexe o PDF e use “Extrair questões para revisar”.'); }},'Importar questões de PDF'),
+        h('button',{class:'btn secondary',onclick:()=>window.dispatchEvent(new CustomEvent('atlas:goto',{detail:'descritores'}))},'Descritores SAEB'),
         h('button',{class:'btn',onclick:()=>editor()},'+ Nova questão'))),
     h('div',{class:'atlas-bank-toolbar'},
       h('div',{class:'row between'},

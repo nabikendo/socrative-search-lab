@@ -189,3 +189,35 @@
  #app #tab-resultados .stat:last-child {grid-column:auto;}
  #app #tab-turma .atlas-import-card {padding:16px;}
 }
+
+
+/* Laboratório de descritores Inep/SAEB (dados locais). */
+#app #tab-descritores .atlas-descriptor-page { gap:18px; }
+#app #tab-descritores .atlas-descriptor-layout { display:grid;grid-template-columns:minmax(245px,330px) minmax(0,1fr);gap:17px;align-items:start; }
+#app #tab-descritores .atlas-descriptor-sidebar { padding:15px;position:sticky;top:76px;min-width:0;max-height:calc(100dvh - 92px);overflow:auto; }
+#app #tab-descritores .atlas-descriptor-list { display:grid;gap:6px;max-height:50dvh;overflow:auto;scrollbar-gutter:stable; }
+#app #tab-descritores .atlas-descriptor-select { display:flex;align-items:start;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:9px;background:var(--fill);color:var(--text);text-align:left;cursor:pointer;font:inherit;font-size:12px;line-height:1.4; }
+#app #tab-descritores .atlas-descriptor-select strong { color:var(--accent);font-size:13px;white-space:nowrap; }
+#app #tab-descritores .atlas-descriptor-select span { flex:1;overflow-wrap:anywhere; }
+#app #tab-descritores .atlas-descriptor-select:hover { border-color:var(--line);background:var(--atlas-soft-blue); }
+#app #tab-descritores .atlas-descriptor-select[aria-pressed=true] { border-color:var(--accent);background:var(--atlas-soft-blue); }
+#app #tab-descritores .atlas-descriptor-main { min-width:0;gap:16px; }
+#app #tab-descritores .atlas-descriptor-cards { display:grid;gap:12px; }
+#app #tab-descritores .atlas-descriptor-question { border-left:3px solid var(--accent);gap:12px; }
+#app #tab-descritores .atlas-descriptor-question > strong { font-size:17px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere; }
+#app #tab-descritores .atlas-descriptor-options { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px; }
+#app #tab-descritores .atlas-descriptor-option { padding:9px 11px;border-radius:8px;background:var(--fill);font-size:13px;overflow-wrap:anywhere; }
+#app #tab-descritores .atlas-descriptor-option.is-correct { background:var(--atlas-soft-green);color:var(--ok); }
+#app #tab-descritores .atlas-descriptor-metrics { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px; }
+#app #tab-descritores .atlas-descriptor-metrics .stat { padding:11px; }
+#app #tab-descritores .atlas-descriptor-metrics .stat-n { font-size:22px;margin-top:8px; }
+.atlas-descriptor-editor { max-width:min(680px,calc(100vw - 28px));max-height:90dvh;overflow-y:auto;width:100%; }
+@media(max-width:900px){
+ #app #tab-descritores .atlas-descriptor-layout { grid-template-columns:1fr; }
+ #app #tab-descritores .atlas-descriptor-sidebar { position:static;max-height:none; }
+ #app #tab-descritores .atlas-descriptor-list { max-height:220px; }
+}
+@media(max-width:610px){
+ #app #tab-descritores .atlas-descriptor-options { grid-template-columns:1fr; }
+ #app #tab-descritores .atlas-descriptor-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
