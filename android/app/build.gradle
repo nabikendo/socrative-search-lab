@@ -2,6 +2,9 @@ plugins {
     id 'com.android.application'
 }
 
+def atlasVersionName = System.getenv('ATLAS_VERSION_NAME') ?: '1.2.0'
+def atlasVersionCode = (System.getenv('ATLAS_VERSION_CODE') ?: '1').toInteger()
+
 android {
     namespace 'br.com.atlas.provas'
     compileSdk 34
@@ -10,8 +13,8 @@ android {
         applicationId 'br.com.atlas.provas'
         minSdk 26
         targetSdk 34
-        versionCode (System.getenv('ATLAS_VERSION_CODE') ?: '1').toInteger()
-        versionName System.getenv('ATLAS_VERSION_NAME') ?: '1.2.0'
+        versionCode atlasVersionCode
+        versionName atlasVersionName
     }
 
     signingConfigs {
