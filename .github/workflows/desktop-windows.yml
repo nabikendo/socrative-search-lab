@@ -132,12 +132,11 @@ jobs:
             $notes = @"
           Atlas $version — versão estável Windows (64 bits).
 
-          Correção importante:
-          - As abas Prova, Banco, Descritores, Resultados e Ajuda ficavam em branco na versão 1.3.3 (só a aba Turma aparecia)
-          - O painel agora cria a seção que faltava e mostra uma mensagem na própria aba se algo falhar ao carregar, em vez de deixá-la vazia
-          - Novo teste automático confere que toda aba tem botão e seção na página
+          Correção:
+          - A aba Turma mostrava "current is not defined" quando já havia uma turma salva; agora a lista da turma, arquivar e restaurar funcionam
+          - Nova verificação automática (ESLint) procura variáveis não definidas em todo o código antes de cada versão
 
-          Inclui tudo da 1.3.3: interface renovada, catálogo SAEB, proteção de atualizações com prova ativa e regra do Firewall só para redes privadas.
+          Mantém a correção da 1.3.4 (abas Prova, Banco, Descritores, Resultados e Ajuda em branco).
           Versão não assinada digitalmente. Testes automáticos não substituem homologação presencial em sala.
           "@
             gh release create $tag @files --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --latest --title "Atlas $version para Windows" --notes $notes

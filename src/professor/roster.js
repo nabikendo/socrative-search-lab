@@ -179,6 +179,7 @@ async function handleRosterFile(file) {
   try { propose(await readFile(file)); } catch (error) { state.error = error.message || 'Não consegui ler este arquivo.'; render(); }
 }
 function render() {
+  const currentClass = state.classes.find((item) => item.id === state.classId);
   const textarea = h('textarea', { placeholder: '3;Nome do aluno\n5;Outro aluno', 'aria-label': 'Colar lista de alunos' });
   const picker = h('input', { type: 'file', accept: '.pdf,.csv,.txt,.xlsx', id: 'roster-file', onchange: async (e) => {
     const file = e.target.files[0]; e.target.value = '';
@@ -267,7 +268,7 @@ function render() {
         state.classes=(await api(`/api/classes${state.includeArchived?'?all=1':''}`)).classes;
         if (!state.classes.some((c)=>c.id===state.classId)) {state.classId=state.classes[0]?.id||''; await loadClassRoster();}
         render();
-      }}, current?.archived?'Restaurar turma':'Arquivar turma')), studentList(state.roster.map((s)=>({...s,classId:state.classId})), undefined, true))));
+      }}, currentClass?.archived?'Restaurar turma':'Arquivar turma')), studentList(state.roster.map((s)=>({...s,classId:state.classId})), undefined, true))));
 }
 
 const step = (n, title, text) => h('li', { class: 'step' }, h('span', { class: 'step-n' }, n), h('div', {}, h('div', { class: 'headline', style: 'font-size:17px' }, title), h('div', { class: 'sub' }, text)));
