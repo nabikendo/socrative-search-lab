@@ -387,7 +387,9 @@ function setStatus(kind, label) {
   el.className = `save-state ${kind}`;
   $('#save-label').textContent = label;
 }
-const markSaving = () => setStatus('', 'Salvando…');
+const markSaving = () => state.queuePersisted === false ?
+  setStatus('pending', 'Armazenamento local indisponível: não feche a prova até o envio confirmar.') :
+  setStatus('', 'Salvando…');
 
 async function flush() {
   if (state.flushing || state.blockedSync || !state.session) return;
