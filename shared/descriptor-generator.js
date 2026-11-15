@@ -5,6 +5,14 @@ import { findSkill } from './skills.js';
 const choice = (stem, answer, incorrect, explanation, skill) => {
   const correct = String(answer);
   const options = [...new Set([correct, ...incorrect.map(String)])].slice(0, 4);
+  // Algumas combinações numéricas produzem distratores coincidentes. Completar
+  // sem incluir segunda alternativa numericamente idêntica à resposta.
+  const asFraction = /^(-?\\d+)\\/(\\d+)$/.exec(correct);
+  for (let delta = 1; options.length < 4 && delta < 20; delta++) {
+    const candidate = asFraction ? `${Number(asFraction[1]) + delta}/${asFraction[2]}` :
+      String(Number(correct) + delta * (Number.isInteger(Number(correct)) ? 1 : 0.5));
+    if (!options.includes(candidate)) options.push(candidate);
+  }
   if (options.length !== 4) throw new Error('O modelo gerou alternativas insuficientes.');
   return { type: 'choice', text: stem, options, correct, weight: 1, difficulty: 'medium',
     topic: skill.topic, skill: skill.id, explanation };
