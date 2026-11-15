@@ -1,11 +1,11 @@
 {
   "name": "atlas-provas",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "Atlas: provas em rede local, sem Internet durante a aula.",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -13,11 +13,13 @@
     "start": "npm run build && node --disable-warning=ExperimentalWarning server.mjs",
     "serve": "node --disable-warning=ExperimentalWarning server.mjs",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "test:coverage": "node --disable-warning=ExperimentalWarning --test --experimental-test-coverage test/*.test.js",
+    "dev:server": "node --disable-warning=ExperimentalWarning --watch server.mjs",
     "desktop:dev": "electron .",
     "desktop:package": "npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
-    "electron": "^38.0.0",
+    "electron": "^43.0.0",
     "electron-builder": "^26.0.0",
     "pdfjs-dist": "5.4.149",
     "qrcode-generator": "^2.0.4",

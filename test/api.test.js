@@ -412,10 +412,17 @@ test('política de backup é configurável e anonimização só atinge históric
 });
 
 
+// pasta temporária que se apaga sozinha (await using); declarada antes do app, é liberada depois dele
+const tempDir = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return { path: dir, async [Symbol.asyncDispose]() { fs.rmSync(dir, { recursive: true, force: true }); } };
+};
+
 test('saída da página: professor é avisado, contagem sem duplicar, tempo restante e cópia automática ao encerrar', async () => {
-  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-away-'));
+  await using temp2 = tempDir('atlas-away-');
+  const dir2 = temp2.path;
   const copies = path.join(dir2, 'copias');
-  const app2 = createApp({ dataDir: dir2, pin: '654321', exportDir: copies });
+  await using app2 = createApp({ dataDir: dir2, pin: '654321', exportDir: copies });
   await new Promise((r) => app2.server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${app2.server.address().port}`;
   const send = async (route, { method = 'GET', body, cookie } = {}) => {
@@ -469,13 +476,13 @@ test('saída da página: professor é avisado, contagem sem duplicar, tempo rest
     assert.equal(backup.format, 'atlas-backup');
     assert.ok(backup.db.length > 100);
   } finally {
-    await app2.close();
-    fs.rmSync(dir2, { recursive: true, force: true });
+    // o app e a pasta temporária são liberados por await using, nessa ordem
   }
 });
 
 test('cópias automáticas: mantém só as 40 mais recentes', async () => {
-  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-prune-'));
+  await using temp3 = tempDir('atlas-prune-');
+  const dir3 = temp3.path;
   const copies = path.join(dir3, 'copias');
   fs.mkdirSync(copies);
   for (let i = 0; i < 45; i++) {
@@ -486,7 +493,7 @@ test('cópias automáticas: mantém só as 40 mais recentes', async () => {
     }
   }
   fs.writeFileSync(path.join(copies, 'notas-pessoais.txt'), 'não mexer');
-  const app3 = createApp({ dataDir: dir3, pin: '111222', exportDir: copies });
+  await using app3 = createApp({ dataDir: dir3, pin: '111222', exportDir: copies });
   await new Promise((r) => app3.server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${app3.server.address().port}`;
   const post = (route, body, cookie) => fetch(url + route, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body || {}) });
@@ -502,7 +509,6 @@ test('cópias automáticas: mantém só as 40 mais recentes', async () => {
     assert.ok([...names].some((n) => n.startsWith('Nova-')));
     assert.ok(fs.existsSync(path.join(copies, 'notas-pessoais.txt')), 'outros arquivos da pasta não são apagados');
   } finally {
-    await app3.close();
-    fs.rmSync(dir3, { recursive: true, force: true });
+    // o app e a pasta temporária são liberados por await using, nessa ordem
   }
 });

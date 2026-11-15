@@ -53,3 +53,7 @@ Novo: aviso de saída da página (com contagem e tempo, sem bloquear o aluno), p
 Limites: em Chromebook não é possível impedir que o aluno saia da página, só registrar. O firewall e o bloqueio de suspensão só podem ser verificados no Windows real.
 
 Fechamento da versão estável: histórico de saídas com horário por aluno (e no PDF individual), cópia automática também quando a prova termina pelo horário, limpeza das cópias antigas (40 mais recentes), estilos do diagnóstico movidos para a base (a página /teste os usava sem carregá-los) e saídas não contadas enquanto a prova está pausada.
+
+## Node.js 26 e Electron 43 (1.3.0)
+
+Os pacotes ZIP passam a embutir o Node 26.13.1 (LTS, com as correções de segurança de 11/11/2026) e o aplicativo do Windows sobe do Electron 38 para o 43 (Node 24.17). Os testes rodam em Node 24 e 26 (`.github/workflows/ci.yml`). Recursos novos em uso: `URLPattern` no roteador, `crypto.hash`, `Intl.DurationFormat` no relatório individual, `Temporal` no nome das cópias (com `Date` de reserva, pois o Node 24 não o tem), `await using` nos testes e `process.loadEnvFile` para o `atlas.env`. Correção: o nome das cópias automáticas usava o horário UTC; agora usa o horário local.

@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24' # o mesmo Node que o Electron 43 embute no aplicativo
       - name: Instalar dependências
         run: npm ci --no-audit --no-fund
       - name: Testes automatizados
@@ -94,6 +94,7 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -126,13 +127,12 @@ jobs:
             $notes = @"
           Atlas $version, versão estável para Windows.
 
-          - Aviso ao professor quando o aluno sai da página da prova, com horário, contagem e tempo fora
-          - Página /teste para os alunos conferirem a conexão antes da prova
-          - Tempo restante pelo relógio do computador do professor
-          - O Windows não suspende com uma prova aberta; liberação do Firewall pelo menu
-          - Cópia automática (planilha e backup) ao encerrar, inclusive quando a prova termina pelo horário
-          - Impressão da prova e do gabarito
-          - Novo visual, limpo e minimalista, e correções de bugs
+          - Atualização do Node.js: pacotes ZIP com o Node 26 LTS; aplicativo do Windows com o Electron 43 (Node 24)
+          - Aproveita recursos novos do Node: URLPattern, crypto.hash, Temporal, Intl.DurationFormat e arquivo atlas.env
+          - Nome das cópias automáticas passa a usar o horário local (antes saía em UTC)
+          - Mantém o aviso de saída da página, o teste de conexão, a cópia automática e a impressão da prova
           "@
             gh release create $tag @files --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --latest --title "Atlas $version para Windows" --notes $notes
+            # os pacotes ZIP (com o Node 26 embutido) são montados à parte e anexados a esta mesma versão
+            gh workflow run pacotes.yml --repo "$env:GITHUB_REPOSITORY" --ref "$env:GITHUB_REF_NAME" -f tag=$tag
           }

@@ -75,7 +75,7 @@ A tela fica acesa durante a prova, e o aviso de saída da página funciona norma
 3. Extraia o ZIP (botão direito → **Extrair tudo**) e guarde a pasta onde for fácil de achar, por exemplo em *Documentos*.
 4. Dê dois cliques em **`Iniciar-Atlas`** (Windows) ou **`Iniciar-Atlas.command`** (Mac). No Mac, na primeira vez: botão direito → **Abrir** → **Abrir**.
 
-Esse pacote já inclui tudo, inclusive o Node.js. Funciona **sem Internet**, mesmo na primeira vez.
+Esse pacote já inclui tudo, inclusive o Node.js 26 (LTS). Funciona **sem Internet**, mesmo na primeira vez.
 
 ### Caminho alternativo: baixar o código
 
@@ -258,7 +258,9 @@ npm test        # testes automáticos
 npm start       # compila e inicia o servidor (porta 8080)
 ```
 
-Requer Node.js **22.13+** (os pacotes prontos já trazem o Node.js). Variáveis opcionais: `PORT`, `ATLAS_PIN`, `ATLAS_DATA_DIR`, `ATLAS_EXPORT_DIR` (pasta das cópias automáticas).
+Requer Node.js **24 ou mais novo** (recomendado: **26 LTS**; os pacotes ZIP já trazem o Node 26, e o instalador do Windows traz o Electron 43, que embute o Node 24). Variáveis opcionais: `PORT`, `ATLAS_PIN`, `ATLAS_DATA_DIR`, `ATLAS_EXPORT_DIR` (pasta das cópias automáticas). Em vez de variáveis de ambiente, dá para criar um arquivo `atlas.env` ao lado do `server.mjs`, com linhas como `PORT=8080` e `ATLAS_PIN=123456`.
+
+Scripts úteis: `npm test`, `npm run test:coverage` (cobertura de testes), `npm run dev:server` (reinicia sozinho ao salvar).
 
 ```text
 server.mjs        servidor HTTP, rotas e regras de acesso

@@ -34,8 +34,8 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
 
   // ---------- utilidades
   const same = (a, b) => {
-    const ha = crypto.createHash('sha256').update(String(a)).digest();
-    const hb = crypto.createHash('sha256').update(String(b)).digest();
+    const ha = crypto.hash('sha256', String(a), 'buffer');
+    const hb = crypto.hash('sha256', String(b), 'buffer');
     return crypto.timingSafeEqual(ha, hb);
   };
   function limit(req, name, max, windowMs = 60_000) {
@@ -191,12 +191,19 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return Buffer.from(output, 'latin1');
   }
 
+  // 2026-11-15-08-30, no horário do computador (Temporal no Node 26 e no Electron novo; Date como reserva)
+  function localStamp() {
+    if (globalThis.Temporal) return Temporal.Now.plainDateTimeISO().toString({ smallestUnit: 'minute' }).replace(/[:T]/g, '-');
+    const d = new Date(), p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}`;
+  }
+
   // cópia automática ao encerrar: planilha de notas + backup completo, numa pasta que pode ficar no OneDrive ou pendrive
   function saveCopy(exam) {
     if (!exportDir) return;
     try {
       fs.mkdirSync(exportDir, { recursive: true });
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      const stamp = localStamp();
       const safe = String(exam.title || 'prova').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'prova';
       const name = `${safe}-${stamp}`;
       fs.writeFileSync(path.join(exportDir, `${name}.csv`), examCsv(exam), 'utf8');
@@ -219,6 +226,14 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     for (const name of old) for (const ext of ['csv', 'atlas']) fs.rmSync(path.join(exportDir, `${name}.${ext}`), { force: true });
   }
 
+  // 80 -> "1 min 20 s" (Intl.DurationFormat)
+  function spokenDuration(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    const parts = { hours: Math.floor(s / 3600), minutes: Math.floor((s % 3600) / 60), seconds: s % 60 };
+    const present = Object.fromEntries(Object.entries(parts).filter(([, value]) => value));
+    return new Intl.DurationFormat('pt-BR', { style: 'short' }).format(Object.keys(present).length ? present : { seconds: 0 });
+  }
+
   function lanUrls(port) {
     const rank = (ip) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : 2);
     return Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal)
@@ -229,9 +244,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   const routes = [];
   const route = (method, pattern, opts, handler) => {
     if (typeof opts === 'function') { handler = opts; opts = {}; }
-    const keys = [];
-    const regex = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '$');
-    routes.push({ method, regex, keys, admin: !!opts.admin, handler });
+    routes.push({ method, pattern: new URLPattern({ pathname: pattern }), admin: !!opts.admin, handler });
   };
 
   // público
@@ -772,7 +785,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     const lines = [
       'ATLAS - RELATORIO INDIVIDUAL', `Prova: ${exam.title}`, `Estudante: ${result.name} - numero ${result.number}`,
       `Turma: ${result.className || 'Nao informada'}`, `Situacao: ${result.status === 'submitted' ? 'Entregue' : 'Em andamento'}`,
-      `Nota: ${result.score} / ${result.max}`, `Saidas da pagina da prova: ${result.away.count} (${result.away.seconds} s fora)`, '', 'RESPOSTAS',
+      `Nota: ${result.score} / ${result.max}`, `Saidas da pagina da prova: ${result.away.count} (${spokenDuration(result.away.seconds)} fora)`, '', 'RESPOSTAS',
       ...exam.questions.flatMap((q, i) => [`${i + 1}. ${q.text}`, `Habilidade: ${skillLabel(q.skill) || 'Nao informada'} | Nota: ${result.detail[q.id]?.earned ?? 'Pendente'} / ${q.weight}`, `Resposta: ${result.answers[q.id] || 'Sem resposta'}`, '']),
     ];
     const pdf = simplePdf(lines);
@@ -938,10 +951,12 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       if (method !== 'GET' && origin && !sameOrigin(origin, req.headers.host)) throw new HttpError(403, 'bad_origin');
       for (const r of routes) {
         if (r.method !== method) continue;
-        const m = url.pathname.match(r.regex);
-        if (!m) continue;
+        const match = r.pattern.exec({ pathname: url.pathname });
+        if (!match) continue;
         if (r.admin && !isAdmin(req)) throw new HttpError(401, 'teacher_auth_required', 'Entre com o PIN do professor.');
-        const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
+        let params;
+        try { params = Object.fromEntries(Object.entries(match.pathname.groups).map(([name, value]) => [name, decodeURIComponent(value)])); }
+        catch { throw new HttpError(400, 'bad_path', 'Endereço inválido.'); }
         const result = await r.handler({ req, res, url, params });
         if (result !== null && result !== undefined) sendJson(res, 200, result);
         return;
@@ -970,11 +985,13 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   }, 1000);
   scheduleTimer.unref();
   const close = () => new Promise((resolve) => { clearInterval(backupTimer); clearInterval(scheduleTimer); server.close(() => { store.close(); resolve(); }); server.closeAllConnections?.(); });
-  return { server, store, pin, close };
+  return { server, store, pin, close, [Symbol.asyncDispose]: close };
 }
 
 // ---------- execução direta: `npm start` ou os arquivos "Iniciar-Atlas"
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // atlas.env (opcional, ao lado do server.mjs): linhas PORT=8080, ATLAS_PIN=123456, ATLAS_EXPORT_DIR=D:\\Copias
+  try { process.loadEnvFile(path.join(root, 'atlas.env')); } catch { /* sem arquivo: usa os padrões */ }
   const port = Number(process.env.PORT || 8080);
   const dataDir = process.env.ATLAS_DATA_DIR || path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });

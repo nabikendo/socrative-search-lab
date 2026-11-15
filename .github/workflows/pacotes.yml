@@ -1,15 +1,17 @@
 name: Pacotes prontos para usar
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Versão (ex.: v1.3.0) cuja página de Releases recebe os pacotes ZIP'
+        required: false
 
 permissions:
   contents: write
 
 env:
-  NODE_RUNTIME: 22.16.0   # versão do Node.js que vai dentro dos pacotes
+  NODE_RUNTIME: 26.13.1   # versão do Node.js (26 LTS) que vai dentro dos pacotes
 
 jobs:
   pacotes:
@@ -18,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - run: npm ci
       - run: npm test
@@ -46,14 +48,14 @@ jobs:
           scripts/package.sh Atlas-Mac-Intel unix "dl/node-v${NODE_RUNTIME}-darwin-x64/bin/node"
           scripts/package.sh Atlas-Linux unix "dl/node-v${NODE_RUNTIME}-linux-x64/bin/node"
 
-      - name: Publicar na página Releases (quando há uma tag)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Anexar os pacotes à release (quando a versão é informada)
+        if: ${{ inputs.tag != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/*.zip --title "Atlas $GITHUB_REF_NAME" --generate-notes
+        run: gh release upload "${{ inputs.tag }}" release/*.zip --clobber
 
       - name: Guardar os pacotes (execução manual)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.tag == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: pacotes
