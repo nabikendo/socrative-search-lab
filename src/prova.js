@@ -155,6 +155,7 @@ function renderExam() {
 
 function renderQuestion() {
   $('#submit').disabled=state.paused;
+  $('#submit-side').disabled=state.paused || state.closed;
   const total = state.questions.length;
   if (!total) {
     $('#hud-label').textContent = 'Prova em PDF';
@@ -526,6 +527,7 @@ function openSubmit() {
   dialog.showModal();
 }
 $('#submit').addEventListener('click', openSubmit);
+$('#submit-side').addEventListener('click', openSubmit);
 $('#submit-cancel').addEventListener('click', () => {
   dialog.close();
   const first = state.questions.findIndex((q) => !hasAnswer(currentAnswer(q.id)));
