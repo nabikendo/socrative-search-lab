@@ -14,7 +14,7 @@ test('painel do professor contém as seis abas e o visual compartilhado', () => 
     assert.match(page, new RegExp('id="tab-'+tab+'"'));
   }
   assert.match(page, /reference-redesign\.css/);
-  assert.match(page, /data-theme-toggle/);
+  assert.match(page, /id="settings-open"/);
 });
 
 test('tela do aluno conserva controles de prova e rascunho sem IDs duplicados', () => {
@@ -44,9 +44,10 @@ test('cada aba registrada no main.js tem botão e seção no HTML (aba sem seç�
   const page = read('professor.html');
   const main = read('src/professor/main.js');
   const registered = [...main.match(/const tabs = \{([^}]*)\}/)[1].matchAll(/(\w+):/g)].map((match) => match[1]);
-  assert.deepEqual(registered.sort(), ['ajuda', 'banco', 'descritores', 'prova', 'resultados', 'turma']);
+  assert.deepEqual(registered.sort(), ['ajuda', 'banco', 'configuracoes', 'descritores', 'prova', 'resultados', 'turma']);
   for (const tab of registered) {
-    assert.match(page, new RegExp('data-tab="' + tab + '"'), 'botão ausente: ' + tab);
+    if (tab === 'configuracoes') assert.match(page, /id="settings-open"/, 'engrenagem ausente');
+    else assert.match(page, new RegExp('data-tab="' + tab + '"'), 'botão ausente: ' + tab);
     assert.match(page, new RegExp('<section id="tab-' + tab + '"'), 'seção ausente: ' + tab);
   }
 });
