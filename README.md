@@ -16,7 +16,7 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 
 ![Painel de resultados](docs/img/resultados.png)
 
-> As imagens mostram dados de exemplo.
+> As imagens mostram dados de exemplo e foram feitas antes do visual novo da versão 1.2.0 (mais limpo, no estilo dos apps do macOS).
 
 ---
 
@@ -26,10 +26,11 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 2. [Instalação (uma vez só)](#2-instalação-uma-vez-só)
 3. [Dia a dia: aplicar uma prova](#3-dia-a-dia-aplicar-uma-prova)
 4. [Como as notas funcionam](#4-como-as-notas-funcionam)
-5. [Problemas comuns](#5-problemas-comuns)
-6. [Segurança e privacidade](#6-segurança-e-privacidade)
-7. [Dados, backup e atualização](#7-dados-backup-e-atualização)
-8. [Para quem desenvolve](#8-para-quem-desenvolve)
+5. [Sala de aula com rede ruim](#5-sala-de-aula-com-rede-ruim)
+6. [Problemas comuns](#6-problemas-comuns)
+7. [Segurança e privacidade](#7-segurança-e-privacidade)
+8. [Dados, backup e atualização](#8-dados-backup-e-atualização)
+9. [Para quem desenvolve](#9-para-quem-desenvolve)
 
 ---
 
@@ -44,11 +45,20 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 
 Você não precisa usar terminal, comandos nem saber programar.
 
-### Caminho fácil: pacote pronto (não instala nada)
+### Windows: instalador (recomendado)
+
+1. Abra a página **[Releases](../../releases/latest)** e baixe **`Atlas-Setup-…-x64.exe`** (a versão estável mais recente).
+2. Dê dois cliques no instalador. Se o Windows mostrar "O Windows protegeu o computador", clique em **Mais informações → Executar assim mesmo**.
+3. Abra o **Atlas** pelo menu Iniciar. Na primeira vez ele pergunta se deve **liberar a rede para os alunos** (Firewall do Windows): clique em **Liberar agora** e aceite o aviso do administrador. Para refazer depois: menu **Atlas › Liberar no Firewall do Windows**.
+4. O painel do professor abre na própria janela do Atlas, sem navegador e **sem janela preta**. O **PIN** está em **Atlas › Mostrar PIN do perfil principal**.
+
+O instalador já inclui tudo e funciona **sem Internet**. Para atualizar, veja a seção 8.
+
+### Outros sistemas (ou Windows sem instalador): pacote pronto
 
 1. Abra a página **[Releases](../../releases/latest)** deste repositório (barra lateral direita, no GitHub).
 2. Em **Assets**, baixe o arquivo do seu computador:
-   - **Windows:** `Atlas-Windows.zip`
+   - **Windows (sem instalar):** `Atlas-Windows.zip`
    - **Mac com chip Apple (M1, M2, M3…):** `Atlas-Mac-AppleSilicon.zip`
    - **Mac mais antigo (Intel):** `Atlas-Mac-Intel.zip`
    - **Linux:** `Atlas-Linux.zip`
@@ -129,14 +139,15 @@ Clique em **Abrir para os alunos**. O painel mostra o **código de 4 números**,
 
 Na aba **Resultados**, em tempo real:
 
-- quantos alunos estão online e quantos já enviaram;
+- quantos alunos estão online e quantos já enviaram, e **quem está fora da página da prova** agora (veja a seção 5);
 - a **média** da turma;
 - o **desempenho por questão** (% de acerto e o erro mais comum), para ver o que a turma não aprendeu;
 - a lista de alunos: toque em um nome para ver as respostas e **dar nota às questões abertas**;
 - **Reabrir para o aluno**, caso alguém envie sem querer;
-- **Baixar planilha**, um arquivo que abre direto no Excel, com acentos e vírgulas decimais corretos.
+- **Baixar planilha**, um arquivo que abre direto no Excel, com acentos e vírgulas decimais corretos (inclui as colunas de saídas da página);
+- **Imprimir prova** e **Imprimir gabarito**, na aba Prova, para aplicar no papel se a rede falhar.
 
-Para encerrar, volte à aba **Prova** e clique em **Encerrar prova**. Respostas já salvas são mantidas.
+Para encerrar, volte à aba **Prova** e clique em **Encerrar prova** (ou deixe o horário de encerramento programado). Respostas já salvas são mantidas e uma cópia é guardada automaticamente (seção 5).
 
 ### Antes da primeira aula de verdade
 
@@ -145,7 +156,7 @@ Faça um teste com Internet desligada e alguns alunos fictícios: abra a prova e
 ### A aba Ajuda
 
 - **Primeiros passos:** o guia de 5 passos, mais os botões **Criar prova de exemplo** e **Criar alunos de teste** (só funciona se a lista de alunos estiver vazia), para você ensaiar sem alunos de verdade.
-- **Testar a conexão:** uma lista de verificação que se atualiza sozinha: o Atlas está funcionando, qual endereço os alunos devem usar (e se ele responde), se há prova aberta, se a turma foi importada e **quantos aparelhos de alunos já conectaram**. Se nenhum conectou, ela explica o que conferir (Wi‑Fi, Firewall).
+- **Testar a conexão:** uma lista de verificação que se atualiza sozinha: o Atlas está funcionando, qual endereço os alunos devem usar (e se ele responde), se a porta é a padrão, se há prova aberta, se a turma foi importada, onde ficam as cópias automáticas e **quantos aparelhos de alunos já conectaram**. Se nenhum conectou, ela explica o que conferir (Wi‑Fi, Firewall).
 - **Backup e restauração:** **Baixar backup agora** gera um único arquivo `.atlas` com turma, provas, respostas e anexos. **Restaurar de um backup…** devolve tudo a esse estado; antes da troca o Atlas guarda uma cópia do estado atual em `data/backups`.
 - **Dúvidas frequentes.**
 
@@ -158,29 +169,34 @@ Faça um teste com Internet desligada e alguns alunos fictícios: abra a prova e
 
 A nota aparece como `pontos/máximo`, junto com quantas respostas aguardam correção. O gabarito **nunca** é enviado ao aluno.
 
-## Sala de aula com rede ruim (1.2.0)
+## 5. Sala de aula com rede ruim
 
-O Atlas funciona sem Internet; o que costuma falhar é a rede da sala. O que ajuda:
+O Atlas funciona sem Internet; o que costuma falhar é a rede da sala (e os Chromebooks da escola, que não aceitam instalar nada, mas abrem a prova pelo navegador). O que ajuda:
 
 - **Roteador próprio:** o Wi‑Fi da escola muitas vezes impede que os aparelhos se enxerguem. Um roteador simples, sem Internet, resolve.
 - **Teste dos alunos:** antes da prova, peça que abram o endereço do professor terminado em `/teste`. A página mede a conexão e avisa o professor que o aparelho chegou.
+- **Endereço curto:** o Atlas usa a porta 80 quando possível, então o endereço fica só `http://192.168.x.x/prova`. Se a 80 estiver ocupada, usa a 8080 e o diagnóstico avisa; o QR Code sempre leva a porta certa.
 - **Firewall do Windows:** na primeira abertura o Atlas oferece liberar a rede. Para refazer: menu **Atlas › Liberar no Firewall do Windows**.
 - **Computador acordado:** com uma prova aberta, o Windows não entra em suspensão.
-- **Saiu da página:** o aluno é avisado de que o professor sabe quando ele sai da prova. Em **Resultados** aparece “Fora da prova” em tempo real, quantas vezes saiu e por quanto tempo. Ao abrir o aluno, a lista mostra o horário de cada saída; os números também vão para a planilha e para o relatório individual. É um sinal para conversar, não prova de colagem: abrir o PDF em outra aba e o clique na barra de endereço também contam.
+- **Saiu da página:** o aluno é avisado de que o professor sabe quando ele sai da prova. Em **Resultados** aparece “Fora da prova” em tempo real, quantas vezes saiu e por quanto tempo. Ao abrir o aluno, a lista mostra o horário de cada saída; os números também vão para a planilha e para o relatório individual. Nada é bloqueado no aparelho do aluno, e o Atlas só registra o fato de a página ter perdido o foco (nunca o que o aluno viu). É um sinal para conversar, não prova de colagem: abrir o PDF em outra aba também conta. Saídas muito curtas e saídas durante uma pausa não entram na conta.
 - **Tempo restante:** quando a prova tem horário de encerramento, o aluno vê o tempo restante pelo relógio do computador do professor.
 - **Cópia automática:** ao encerrar a prova (pelo botão ou pelo horário programado), planilha e backup vão para `Documentos\Atlas\Copias` (menu **Atlas › Abrir pasta das cópias de provas**). Se a pasta Documentos sincroniza com a nuvem, a cópia já sai do computador. O Atlas guarda as 40 cópias mais recentes e apaga as mais antigas.
 - **Plano B no papel:** na aba **Prova**, **Imprimir prova** e **Imprimir gabarito**.
+- **Antes de confiar numa prova valendo nota:** teste com um Chromebook da escola de verdade, desligando o Wi‑Fi por um minuto no meio da prova.
 
-## 5. Problemas comuns
+## 6. Problemas comuns
 
 **Os alunos não conseguem abrir a página.**
-Abra a aba **Ajuda → Testar a conexão** e, se precisar, confira nesta ordem: (1) o computador e os aparelhos estão no **mesmo Wi‑Fi**? (2) os alunos estão usando o endereço com números mostrado no painel, e não `localhost`? (3) a janela preta do Atlas continua aberta? (4) no Windows, libere o **Firewall** para **Redes privadas** ou a porta **8080** (Painel de Controle → Firewall do Windows → *Permitir um aplicativo*, marque Node.js). (5) algumas redes de escola bloqueiam a comunicação entre aparelhos: use um roteador próprio ou o "ponto de acesso" do celular.
+Abra a aba **Ajuda → Testar a conexão** e, se precisar, confira nesta ordem: (1) o computador e os aparelhos estão no **mesmo Wi‑Fi**? (2) os alunos estão usando o endereço com números mostrado no painel, e não `localhost`? (3) o Atlas continua aberto no computador (no pacote ZIP, a janela preta precisa ficar aberta)? (4) no Windows, use **Atlas › Liberar no Firewall do Windows** (no pacote ZIP: Painel de Controle → Firewall do Windows → *Permitir um aplicativo*, marque Node.js). (5) algumas redes de escola bloqueiam a comunicação entre aparelhos: use um roteador próprio ou o "ponto de acesso" do celular.
 
 **Esqueci o PIN.**
-Abra o arquivo `data/pin.txt` com o Bloco de Notas. O PIN também aparece na janela preta ao iniciar.
+No instalador do Windows: menu **Atlas › Mostrar PIN do perfil principal**. No pacote ZIP: abra o arquivo `data/pin.txt` com o Bloco de Notas; o PIN também aparece na janela preta ao iniciar.
 
-**Aparece "A porta 8080 já está em uso".**
-O Atlas já está aberto em outra janela. Feche-a e tente de novo.
+**Aparece "A porta 8080 já está em uso" (pacote ZIP).**
+O Atlas já está aberto em outra janela. Feche-a e tente de novo. O instalador do Windows escolhe outra porta sozinho.
+
+**O computador entrou em suspensão e os alunos caíram.**
+Com uma prova aberta o Atlas impede a suspensão no instalador do Windows. No pacote ZIP, desative a suspensão do computador durante a aula.
 
 **"Número não encontrado na lista".**
 O aluno digitou um número que não está na turma importada. Confira a aba **Turma**.
@@ -200,26 +216,28 @@ A leitura de PDF depende do formato do diário. Se necessário, cole a lista com
 **Preciso trocar a prova depois que alunos já responderam.**
 As questões ficam travadas. Use **Duplicar** para criar uma cópia e alterar.
 
-## 6. Segurança e privacidade
+## 7. Segurança e privacidade
 
 - O painel do professor exige **PIN** (sessão de 12 h, com limite de tentativas).
 - O aluno precisa do **código da prova**. Um número já em uso em outro aparelho é bloqueado; ao recarregar a página, o mesmo aparelho continua de onde parou.
 - Cada aluno envia a prova **uma única vez**; só o professor reabre.
 - Textos dos alunos e documentos DOCX são exibidos com proteção contra código malicioso, e os arquivos enviados são validados pelo conteúdo.
 - Nenhuma fonte, script ou imagem vem da Internet.
-- Os dados dos alunos ficam **só neste computador**. **Nunca publique a pasta `data/`.**
+- Os dados dos alunos ficam **só neste computador**. **Nunca publique a pasta `data/`.** A cópia automática (`Documentos\Atlas\Copias`) contém nomes e respostas: se essa pasta sincroniza com a nuvem, cuide de quem tem acesso à sua conta.
+- O aluno é avisado de que o professor vê quando ele sai da página da prova; só o horário, a contagem e a duração ficam guardados.
 - Limite conhecido: a rede da sala não usa HTTPS. Use um Wi‑Fi com senha própria e não compartilhe o código da prova fora da turma.
 
-## 7. Dados, backup e atualização
+## 8. Dados, backup e atualização
 
-Tudo fica na pasta `data/`: banco `atlas.sqlite`, anexos em `documents/`, o PIN em `pin.txt` e cópias automáticas em `backups/` (a cada 5 minutos, quando há mudanças, mantendo as 20 mais recentes).
+No pacote ZIP, tudo fica na pasta `data/`; no instalador do Windows, na pasta de dados do Atlas do seu usuário (`%APPDATA%\Atlas\data`). Dentro dela: banco `atlas.sqlite`, anexos em `documents/`, o PIN em `pin.txt` e cópias automáticas em `backups/` (a cada 5 minutos, quando há mudanças, mantendo as 20 mais recentes).
 
 - **Backup pelo painel (recomendado):** aba **Ajuda → Baixar backup agora**. Para voltar, **Restaurar de um backup…**.
 - **Guardar uma aula inteira:** feche o Atlas e copie a pasta `data/` para um pendrive.
-- **Atualizar o Atlas:** na versão instalada para Windows, use **Atlas → Buscar atualizações** ou `Alt+U`. O programa pergunta antes de baixar. Em versões portáteis, baixe o ZIP novo, extraia e copie sua pasta `data/` antiga para dentro da nova antes de iniciar.
+- **Cópia de cada prova:** ao encerrar, planilha (`.csv`) e backup (`.atlas`) vão para `Documentos\Atlas\Copias`; as 40 mais recentes ficam guardadas.
+- **Atualizar o Atlas:** na versão instalada para Windows, o Atlas procura atualizações sozinho (sem incomodar quando não há Internet); use **Atlas → Buscar atualizações** ou `Alt+U` para buscar na hora. O programa pergunta antes de baixar. Em **Atlas → Canal de atualizações** você escolhe entre *Somente versões estáveis* (padrão da versão estável) e *Pré-lançamentos beta*. Em versões portáteis, baixe o ZIP novo, extraia e copie sua pasta `data/` antiga para dentro da nova antes de iniciar.
 - **Desinstalar:** apague a pasta do Atlas.
 
-## 8. Para quem desenvolve
+## 9. Para quem desenvolve
 
 ```bash
 git clone https://github.com/nabikendo/socrative-search-lab.git
@@ -230,7 +248,7 @@ npm test        # testes automáticos
 npm start       # compila e inicia o servidor (porta 8080)
 ```
 
-Requer Node.js **22.13+** (os pacotes prontos já trazem o Node.js). Variáveis opcionais: `PORT`, `ATLAS_PIN`, `ATLAS_DATA_DIR`.
+Requer Node.js **22.13+** (os pacotes prontos já trazem o Node.js). Variáveis opcionais: `PORT`, `ATLAS_PIN`, `ATLAS_DATA_DIR`, `ATLAS_EXPORT_DIR` (pasta das cópias automáticas).
 
 ```text
 server.mjs        servidor HTTP, rotas e regras de acesso
@@ -240,7 +258,7 @@ src/professor/    painel do professor (Turma, Prova, Resultados, Ajuda)
 src/prova.js      tela do aluno, com fila offline
 src/styles/       sistema de design (claro e escuro, sem fontes externas)
 scripts/          verificação do Node e montagem dos pacotes prontos (package.sh)
-.github/workflows publica os pacotes (Windows, Mac, Linux) na página Releases a cada versão `v*`
+.github/workflows pacotes.yml publica os pacotes ZIP a cada tag `v*`; desktop-windows.yml gera o instalador do Windows
 test/             testes da API
 docs/             AUDIT.md (auditoria de segurança), ROADMAP.md (próximos passos)
 ```
@@ -253,3 +271,11 @@ git tag v1.1.0 && git push origin v1.1.0
 
 O GitHub Actions (`.github/workflows/pacotes.yml`) roda os testes, monta os pacotes para Windows, Mac (Apple e Intel) e Linux, com o Node.js dentro, e os anexa à página Releases. Também dá para rodar manualmente em **Actions → Pacotes prontos para usar → Run workflow**.
 
+### Publicar o instalador do Windows
+
+O instalador (Electron) é gerado por `.github/workflows/desktop-windows.yml` a cada push na branch `feat/atlas-desktop-hardening` que mexa no código. Ele roda os testes, empacota, abre o app empacotado para conferir o painel e só então publica, se a mensagem do commit tiver uma marca:
+
+- `[publish atlas stable]` com versão `1.2.0` no `package.json`: cria a release estável (publica `latest.yml` e também `beta.yml`, para quem está no canal beta atualizar);
+- `[publish atlas beta]` com versão `1.2.0-beta.N`: cria um pré-lançamento.
+
+A versão precisa ser nova: o GitHub recusa uma tag que já existe, e o atualizador só oferece versões maiores.
