@@ -627,6 +627,14 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     try { return { question: store.saveBankQuestion(await readJson(req)) }; }
     catch (error) { throw new HttpError(400, error.code || 'invalid_question', error.message); }
   });
+  route('PUT', '/api/question-bank/:id', { admin: true }, async ({ params, req }) => {
+    const input = await readJson(req);
+    let updated;
+    try { updated = store.updateBankQuestion(params.id, input); }
+    catch (error) { throw new HttpError(400, error.code || 'invalid_question', error.message); }
+    if (!updated) throw new HttpError(404, 'question_not_found', 'Questão não encontrada no banco.');
+    return { question: updated };
+  });
   route('DELETE', '/api/question-bank/:id', { admin: true }, ({ params }) => { store.deleteBankQuestion(params.id); return { ok: true }; });
 
   route('GET', '/api/exams', { admin: true }, () => ({ exams: store.listExams().map(({ questions, document, ...e }) => ({ ...e, questionCount: questions.length, document })) }));
