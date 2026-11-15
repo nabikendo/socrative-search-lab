@@ -32,3 +32,19 @@ test('IA recusa gabarito fora das alternativas e respostas malformadas', async (
   await assert.rejects(()=>generateLocalQuestion({skillId:'SAEB3-D16',model:'modelo:local'},
     {fetchImpl:mock({text:'Qual é a resposta?',options:['1','2','3','4'],correct:'5',explanation:'Erro.'})}),/quatro alternativas/);
 });
+
+test('IA emite parecer de alinhamento provisório sem alterar ou salvar questão', async () => {
+  const { reviewLocalQuestion }=await import('../lib/local-ai.mjs');
+  const seen=[];
+  const report={aligned:false,confidence:'medium',
+    justification:'O enunciado não exige resolver um problema de porcentagem.',
+    improvements:['Incluir uma situação contextualizada com percentual e valor de referência.']};
+  const result=await reviewLocalQuestion({
+    skillId:'SAEB3-D16',model:'modelo:local',
+    question:{text:'Calcule 2 + 2, sem porcentagem.',options:['3','4','5','6'],correct:'4'}
+  },{fetchImpl:mock(report,seen)});
+  assert.equal(result.aligned,false);
+  assert.equal(result.provisional,true);
+  assert.equal(result.confidence,'medium');
+  assert.deepEqual(seen.map(entry=>entry.url),['http://127.0.0.1:11434/api/tags','http://127.0.0.1:11434/api/chat']);
+});
