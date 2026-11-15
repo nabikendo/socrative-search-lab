@@ -200,5 +200,5 @@ function render() {
           h('div',{class:'atlas-bank-stats'},`${filtered.length} de ${questions.length} questões exibidas`)),
         h('div',{class:'atlas-bank-cards'},
           filtered.map(questionCard),
-          !filtered.length && h('div',{class:'card atlas-bank-empty'},questions.length?'Nenhuma questão corresponde aos filtros.':'Seu banco está vazio. Cadastre uma questão ou importe questões de uma prova PDF.'))))));
+          !filtered.length && h('div',{class:'card atlas-bank-empty'},questions.length?'Nenhuma questão corresponde aos filtros.':'Seu banco está vazio. Cadastre uma questão ou importe questões de uma prova PDF.')))));
 }
