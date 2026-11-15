@@ -295,3 +295,10 @@ O instalador (Electron) é gerado por `.github/workflows/desktop-windows.yml` a 
 - `[publish atlas beta]` com versão `1.2.0-beta.N`: cria um pré-lançamento.
 
 A versão precisa ser nova: o GitHub recusa uma tag que já existe, e o atualizador só oferece versões maiores.
+
+
+## Configurações — Sprint 1 (branch de desenvolvimento)
+
+No painel do professor, a engrenagem abre **Configurações**, com aparência (tema claro/escuro/automático, fonte, contraste, compactação e apresentação), padrões de prova, IP da rede, acesso ao backup .atlas existente e links do projeto. Preferências do professor são salvas em `data/teacher-settings.json` por API autenticada; alunos guardam suas escolhas visuais no navegador. A tela do projetor permite alternar o modo apresentação.
+
+**Limitações nesta branch:** o botão de rede atualiza os endereços; a rotação de código curto não está implementada. A exportação continua no formato nativo `.atlas`, não `.zip`. Limpeza de provas antigas permanece pendente. Os padrões de prova são persistidos, mas ainda não são aplicados automaticamente ao editor, ao envio de gabarito ou à notificação sonora. A versão estável não é alterada.
