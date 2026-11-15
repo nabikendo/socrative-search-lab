@@ -6,6 +6,7 @@ on:
     branches:
       - feat/atlas-desktop-hardening
       - release/atlas-descritores-beta-20261115
+      - fix/atlas-132-beta-auditoria
     paths:
       - 'desktop/**'
       - 'server.mjs'
