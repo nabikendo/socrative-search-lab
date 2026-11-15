@@ -115,8 +115,7 @@ function questionCard(question) {
       h('button', { class: 'btn quiet', type: 'button', 'aria-pressed': String(favoriteIds.has(question.bankId)), onclick: () => toggleFavorite(question.bankId) }, favoriteIds.has(question.bankId) ? '★ Favorita' : '☆ Favoritar'),
       h('button', { class: 'btn quiet', type: 'button', onclick: () => editor(question) }, 'Editar'),
       h('button', { class: 'btn', type: 'button', onclick: () => {
-        window.dispatchEvent(new CustomEvent('atlas:add-bank-question', { detail: question }));
-        toast('Para adicionar questões, abra ou salve uma prova editável.');
+        sessionStorage.setItem('atlas.bank.pending', JSON.stringify(question));
         goToExam();
       } }, '+ Adicionar à prova'),
       h('button', { class: 'btn quiet atlas-bank-danger', type: 'button', onclick: async () => {
@@ -168,7 +167,7 @@ function render() {
         h('div',{class:'row'},h('h1',{class:'title'},filters.mode==='exams'?'Simulados e avaliações':'Banco de questões'),h('span',{class:'badge'},filters.mode==='exams'?`${exams.length} provas salvas`:`${questions.length} disponíveis`)),
         h('p',{class:'sub'},filters.mode==='exams'?'Cadernos e provas salvos no computador do professor.':'Questões reais cadastradas no Atlas, disponíveis para reutilização em novas provas.')),
       h('div', { class:'row' },
-        h('button',{class:'btn secondary',onclick:()=>goToExam()},'Importar questões de PDF'),
+        h('button',{class:'btn secondary',onclick:()=>{ goToExam(); toast('Na aba Prova, anexe o PDF e use “Extrair questões para revisar”.'); }},'Importar questões de PDF'),
         h('button',{class:'btn',onclick:()=>editor()},'+ Nova questão'))),
     h('div',{class:'atlas-bank-toolbar'},
       h('div',{class:'row between'},
