@@ -53,8 +53,8 @@ test('cada aba registrada no main.js tem botão e seção no HTML (aba sem seç�
 });
 
 
-test('navegação do professor registra os eventos em todos os botões de aba', () => {
+test('navegação do professor registra eventos em todos os botões de aba', () => {
   const main = read('src/professor/main.js');
-  assert.match(main, /for \\(const button of \\$\\$\\('\\[data-tab\\]'\\)\\) button\\.addEventListener\\('click'/);
-  assert.doesNotMatch(main, /for \\(const button of \\$\\('\\[data-tab\\]'\\)\\)/);
+  assert.ok(main.includes("for (const button of $$('[data-tab]')) button.addEventListener"));
+  assert.ok(!main.includes("for (const button of $('[data-tab]'))"));
 });
