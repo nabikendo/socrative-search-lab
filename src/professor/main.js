@@ -59,6 +59,7 @@ function openTab(name) {
 }
 
 $('#settings-open').addEventListener('click', () => openTab('configuracoes'));
+// querySelectorAll returns the iterable collection of tab buttons.
 for (const button of $('[data-tab]')) button.addEventListener('click', () => openTab(button.dataset.tab));
 
 $('#login-form').addEventListener('submit', async (event) => {
