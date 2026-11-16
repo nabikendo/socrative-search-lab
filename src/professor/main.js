@@ -9,6 +9,9 @@ import * as bank from './bank.js';
 import * as descriptors from './descriptor-lab.js';
 import * as settings from './settings.js';
 
+// Chegou aqui = todos os módulos carregaram: tira o aviso "Carregando…" (se um módulo falhar, ele permanece visível).
+document.getElementById('boot')?.remove();
+
 const tabs = { turma: roster, prova: exam, banco: bank, descritores: descriptors, resultados: results, ajuda: help, configuracoes: settings };
 
 // Cada aba precisa de sua seção no HTML. Se alguma faltar, cria-a em vez de quebrar todas as outras abas.

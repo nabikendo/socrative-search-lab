@@ -10,6 +10,14 @@
     <link rel="stylesheet" href="/src/styles/reference-redesign.css" />
   </head>
   <body>
+    <!-- Aviso visível enquanto o painel não inicia: se o JavaScript falhar ao carregar, a tela não fica em branco. -->
+    <main id="boot" class="center-screen" role="status">
+      <div class="stack-s">
+        <h1 class="title-m">Carregando o Atlas…</h1>
+        <p class="lead" style="font-size: 17px">Se esta mensagem não desaparecer em alguns segundos, o painel não conseguiu iniciar. Feche e abra o Atlas; se continuar, atualize o aplicativo e informe a versão (menu Atlas ou Ajuda).</p>
+        <noscript><p class="error">O JavaScript está desativado neste navegador. Ative-o para usar o painel.</p></noscript>
+      </div>
+    </main>
     <main id="login" class="center-screen" hidden>
       <form id="login-form" class="stack" style="width: min(360px, 100%)">
         <div class="stack-s">

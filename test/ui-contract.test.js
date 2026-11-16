@@ -58,3 +58,10 @@ test('navegação do professor registra eventos em todos os botões de aba', () 
   assert.ok(main.includes("for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener"));
   assert.ok(!main.includes("for (const button of $('[data-tab]'))"));
 });
+
+test('painel do professor mostra aviso visível até iniciar (falha ao carregar não deixa tela branca)', () => {
+  const page = read('professor.html');
+  assert.match(page, /<main id="boot"[^>]*role="status"/);
+  assert.ok(page.indexOf('id="boot"') < page.indexOf('id="login"'));
+  assert.match(read('src/professor/main.js'), /document\.getElementById\('boot'\)\?\.remove\(\)/);
+});
