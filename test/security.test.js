@@ -57,8 +57,9 @@ test('certificado autoassinado: cobre localhost, 127.0.0.1 e os IPs da rede; é 
 test('modo http (padrão): tudo por HTTP; pelo HTTPS só responde o diagnóstico', async () => {
   assert.equal(app.security.get().mode, 'http');
   const ca = app.secure.cert.cert;
-  assert.equal((await request(`http://127.0.0.1:${httpPort}/prova`)).status, 200);
-  const blocked = await request(`https://127.0.0.1:${app.secure.port}/prova`, { ca });
+  // /api/open-exam é pública e não depende das páginas compiladas (no CI os testes rodam antes do build)
+  assert.equal((await request(`http://127.0.0.1:${httpPort}/api/open-exam`)).status, 200);
+  const blocked = await request(`https://127.0.0.1:${app.secure.port}/api/open-exam`, { ca });
   assert.equal(blocked.status, 404);
   assert.match(blocked.text, /HTTPS do Atlas está desligado/);
   assert.equal((await request(`https://127.0.0.1:${app.secure.port}/diag/https`, { ca })).status, 200);
@@ -71,11 +72,11 @@ test('modo https: aparelhos da rede são levados ao HTTPS e não conseguem usar 
   try {
     const ca = app.secure.cert.cert;
     // o computador do professor (127.0.0.1) continua no HTTP local
-    assert.equal((await request(`http://127.0.0.1:${httpPort}/professor`)).status, 200);
+    assert.equal((await request(`http://127.0.0.1:${httpPort}/api/auth/status`)).status, 200);
     // pelo HTTPS, com o certificado conferido (o mesmo que o aluno aceita no aviso), a prova abre
-    const secure = await request(`https://127.0.0.1:${app.secure.port}/prova`, { ca });
+    const secure = await request(`https://127.0.0.1:${app.secure.port}/api/open-exam`, { ca });
     assert.equal(secure.status, 200);
-    assert.match(secure.headers['content-type'], /text\/html/);
+    assert.match(secure.headers['content-type'], /application\/json/);
     const net = await request(`http://127.0.0.1:${httpPort}/api/network`, { headers: { cookie: admin } });
     assert.ok(net.json.urls.length === 0 || net.json.urls.every((url) => url.startsWith('https://')), 'QR Code só com https');
     if (!lanIp) { t.diagnostic('sem IP de rede neste computador: parte do aparelho da rede pulada'); return; }
@@ -94,9 +95,9 @@ test('modo auto: QR Code com HTTPS primeiro e HTTP ainda aceito na rede', async 
   try {
     const net = await request(`http://127.0.0.1:${httpPort}/api/network`, { headers: { cookie: admin } });
     if (net.json.urls.length) assert.ok(net.json.urls[0].startsWith('https://'));
-    assert.equal((await request(`https://127.0.0.1:${app.secure.port}/prova`, { ca: app.secure.cert.cert })).status, 200);
+    assert.equal((await request(`https://127.0.0.1:${app.secure.port}/api/open-exam`, { ca: app.secure.cert.cert })).status, 200);
     if (!lanIp) { t.diagnostic('sem IP de rede'); return; }
-    assert.equal((await request(`http://${lanIp}:${httpPort}/prova`)).status, 200, 'HTTP continua aceito no modo auto');
+    assert.equal((await request(`http://${lanIp}:${httpPort}/api/open-exam`)).status, 200, 'HTTP continua aceito no modo auto');
   } finally { await setMode('http'); }
 });
 
