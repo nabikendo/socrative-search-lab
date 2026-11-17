@@ -12,7 +12,10 @@ import { detectKind, convertDocx, MAX_DOCUMENT_BYTES } from './lib/documents.mjs
 import { ExamError, normalizeQuestions, scoreSession, studentQuestions } from './shared/exam.js';
 import { parseRosterRows } from './shared/roster.js';
 import { skillLabel } from './shared/skills.js';
-import { listLocalModels, generateLocalQuestion, reviewLocalQuestion } from './lib/local-ai.mjs';
+import { openAiSettings } from './lib/ai-settings.mjs';
+import { registerAiRoutes } from './lib/ai-routes.mjs';
+import { registerMaintenanceRoutes } from './lib/maintenance-routes.mjs';
+import { createTestMode } from './lib/test-mode.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -23,8 +26,14 @@ class HttpError extends Error {
   constructor(status, code, message) { super(message || code); this.status = status; this.code = code; }
 }
 
-export function createApp({ dataDir = path.join(root, 'data'), pin = process.env.ATLAS_PIN || String(crypto.randomInt(100000, 1000000)), desktopProfiles, exportDir } = {}) {
-  const store = openStore(dataDir);
+export function createApp({ dataDir = path.join(root, 'data'), pin = process.env.ATLAS_PIN || String(crypto.randomInt(100000, 1000000)), desktopProfiles, exportDir, secretBox, aiFetch, clearAppCache } = {}) {
+  const realStore = openStore(dataDir);
+  // `store` sempre aponta para o banco ativo: o real ou, no modo de teste, o banco isolado (lib/test-mode.mjs).
+  // Verificações de segurança do aplicativo (atualização, troca de perfil) usam `realStore` e nunca enxergam dados fictícios.
+  let testMode = null;
+  const store = new Proxy(realStore, {
+    get(_target, key) { const target = testMode ? testMode.current() : realStore; const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value; },
+  });
   const adminSessions = new Map();
   const lastSeen = new Map(); // batimentos ficam só na memória: não geram escrita em disco
   const buckets = new Map();
@@ -32,6 +41,11 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   let watchedExamId = null; // prova aberta que acompanhamos para copiar quando ela terminar sozinha
   const awayLogged = new Set(); // evita contar duas vezes o mesmo retorno reenviado
   const devices = new Map(); // aparelhos de alunos que abriram a página (para o diagnóstico de rede)
+  const resetPresence = () => { lastSeen.clear(); awayNow.clear(); awayLogged.clear(); devices.clear(); watchedExamId = null; };
+  testMode = createTestMode({ realStore, dataDir, onSwitch: resetPresence });
+  const realOnly = () => { if (testMode.isActive()) throw new HttpError(409, 'test_mode_active', 'Saia do modo de teste para exportar ou restaurar dados reais.'); };
+  let appVersion = '0.0.0';
+  try { appVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version; } catch { /* mantém padrão */ }
 
   // ---------- utilidades
   const same = (a, b) => {
@@ -201,7 +215,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
 
   // cópia automática ao encerrar: planilha de notas + backup completo, numa pasta que pode ficar no OneDrive ou pendrive
   function saveCopy(exam) {
-    if (!exportDir) return;
+    if (!exportDir || testMode.isActive()) return;
     try {
       fs.mkdirSync(exportDir, { recursive: true });
       const stamp = localStamp();
@@ -453,6 +467,8 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   route('GET', '/api/auth/status', ({ req }) => ({ authenticated: isAdmin(req) }));
 
   if (desktopProfiles) {
+    // Erros do gerenciador de perfis trazem code e status HTTP próprios; erros do sistema seguem adiante.
+    const profileHttp = (error) => (error && typeof error.code === 'string' && Number.isInteger(error.status) ? new HttpError(error.status, error.code, error.message) : error);
     const localOnly = (req) => {
       if (req.socket.remoteAddress !== '127.0.0.1' || !/^127\.0\.0\.1:\d+$/.test(req.headers.host || '')) {
         throw new HttpError(403, 'local_only', 'Abra o aplicativo Atlas neste computador.');
@@ -470,8 +486,27 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
       if (!name || name.length > 70 || !/^\d{6}$/.test(profilePin)) {
         throw new HttpError(400, 'invalid_profile', 'Informe um nome e um PIN de seis dígitos.');
       }
-      if (!desktopProfiles.create(name, profilePin)) throw new HttpError(409, 'profile_exists', 'Já existe um perfil com esse nome.');
+      try { desktopProfiles.create(name, profilePin); } catch (error) { throw profileHttp(error); }
       return desktopProfiles.list();
+    });
+    // Editar (nome e/ou PIN) e excluir perfis; o perfil em uso e o Principal têm restrições tratadas no gerenciador.
+    route('PUT', '/api/desktop/profiles/:id', { admin: true }, async ({ req, params }) => {
+      localOnly(req);
+      const input = await readJson(req);
+      try {
+        if (input.name !== undefined) desktopProfiles.rename(params.id, input.name);
+        if (input.pin !== undefined && input.pin !== '') desktopProfiles.changePin(params.id, input.pin);
+      } catch (error) { throw profileHttp(error); }
+      return desktopProfiles.list();
+    });
+    route('DELETE', '/api/desktop/profiles/:id', { admin: true }, async ({ req, params }) => {
+      localOnly(req);
+      const input = await readJson(req);
+      const profile = desktopProfiles.list().profiles.find((item) => item.id === params.id);
+      if (!profile) throw new HttpError(404, 'profile_not_found', 'Perfil não encontrado.');
+      if (String(input.confirm ?? '') !== profile.name) throw new HttpError(400, 'confirmation_required', 'Digite o nome do perfil para confirmar a exclusão.');
+      try { const result = desktopProfiles.remove(params.id, { backup: input.backup !== false }); return { ok: true, backupFile: result.backupFile, ...desktopProfiles.list() }; }
+      catch (error) { throw profileHttp(error); }
     });
     route('POST', '/api/desktop/profiles/switch', { admin: true }, async ({ req }) => {
       localOnly(req);
@@ -628,26 +663,13 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     }
     catch { throw new HttpError(422, 'invalid_spreadsheet', 'Não consegui ler esta planilha. Use um arquivo .xlsx.'); }
   });
-  // IA local opcional: rotas autenticadas e conexão restrita ao localhost.
-  route('GET', '/api/ai/local-models', { admin: true }, async () => {
-    const models = await listLocalModels();
-    return { available: models.length > 0, models, provider: 'Ollama local' };
-  });
-  route('POST', '/api/ai/descriptor-question', { admin: true }, async ({ req }) => {
-    limit(req, 'ai-descriptor', 10);
-    const input = await readJson(req);
-    try {
-      const result = await generateLocalQuestion({ skillId: input.skillId, model: input.model, context: input.context });
-      return { ...result, disclaimer: 'Rascunho: confira descritor, fatos, cálculos, gabarito e linguagem antes de usar.' };
-    } catch (error) { throw new HttpError(422, 'ai_question_unavailable', error.message); }
-  });
-  route('POST', '/api/ai/descriptor-review', { admin: true }, async ({ req }) => {
-    limit(req, 'ai-review', 15);
-    const input = await readJson(req);
-    try {
-      const report = await reviewLocalQuestion({ skillId: input.skillId, model: input.model, question: input.question });
-      return { ...report, disclaimer: 'Parecer automático provisório, não equivale à validação do Inep.' };
-    } catch (error) { throw new HttpError(422, 'ai_review_unavailable', error.message); }
+  // IA: provedores locais e em nuvem, escolhidos e testados nas Configurações (lib/ai-routes.mjs).
+  const aiSettings = openAiSettings(dataDir, { secretBox });
+  registerAiRoutes({ route, readJson, HttpError, limit, aiSettings, fetchImpl: aiFetch });
+  // Limpeza e redefinição, backups de segurança e modo de teste (lib/maintenance-routes.mjs).
+  registerMaintenanceRoutes({
+    route, readJson, HttpError, limit, store, aiSettings, dataDir, testMode, version: appVersion,
+    hooks: { forgetPresence: (ids) => { for (const id of ids) { lastSeen.delete(id); awayNow.delete(id); } }, clearAppCache },
   });
   route('GET', '/api/question-bank', { admin: true }, () => ({ questions: store.listBankQuestions() }));
   route('POST', '/api/question-bank', { admin: true }, async ({ req }) => {
@@ -951,23 +973,25 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   route('GET','/api/privacy/anonymization/preview',{admin:true},({url})=>{const before=String(url.searchParams.get('before')||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(before)||Date.parse(`${before}T00:00:00Z`)>=Date.now())throw new HttpError(400,'invalid_retention_date','Escolha uma data passada.');return store.previewAnonymization(`${before}T00:00:00.000Z`);});
   route('POST','/api/privacy/anonymization',{admin:true},async({req})=>{const input=await readJson(req);const before=String(input.before||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(before)||Date.parse(`${before}T00:00:00Z`)>=Date.now())throw new HttpError(400,'invalid_retention_date','Escolha uma data passada.');const result=store.anonymizeBefore(`${before}T00:00:00.000Z`);store.addAudit('student_data_anonymized','privacy',`${result.students} estudantes e ${result.sessions} sessões anteriores a ${before}.`);return {ok:true,...result};});
   route('GET', '/api/backup', { admin: true }, ({ res }) => {
+    realOnly();
     const day = new Date().toISOString().slice(0, 10);
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="atlas-backup-${day}.atlas"`, 'cache-control': 'no-store' });
     res.end(JSON.stringify(store.exportBackup()));
     return null;
   });
   route('POST', '/api/restore', { admin: true }, async ({ req }) => {
+    realOnly();
     const raw = await readBody(req, 400_000_000);
     let input;
     try { input = JSON.parse(raw.toString('utf8')); } catch { throw new HttpError(422, 'invalid_backup', 'Este arquivo não é um backup válido do Atlas.'); }
     try { return { ok: true, ...store.restoreBackup(input) }; }
     catch (error) { if (error instanceof BackupError) throw new HttpError(422, 'invalid_backup', error.message); throw error; }
   });
-  route('POST','/api/restore/verify',{admin:true},async({req})=>{
+  route('POST','/api/restore/verify',{admin:true},async({req})=>{realOnly();
     const raw=await readBody(req,400_000_000);let input;try{input=JSON.parse(raw.toString('utf8'));}catch{throw new HttpError(422,'invalid_backup','Este arquivo não é um backup válido do Atlas.');}
     try{return store.verifyBackup(input);}catch(error){if(error instanceof BackupError)throw new HttpError(422,'invalid_backup',error.message);throw error;}
   });
-  route('POST','/api/restore/selective',{admin:true},async({req,url})=>{
+  route('POST','/api/restore/selective',{admin:true},async({req,url})=>{realOnly();
     const raw=await readBody(req,400_000_000);let input;try{input=JSON.parse(raw.toString('utf8'));}catch{throw new HttpError(422,'invalid_backup','Este arquivo não é um backup válido do Atlas.');}
     try{return {ok:true,...store.restoreSelected(input,{classIds:url.searchParams.getAll('class'),examIds:url.searchParams.getAll('exam')})};}catch(error){if(error instanceof BackupError)throw new HttpError(422,'invalid_backup',error.message);throw error;}
   });
@@ -1028,7 +1052,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     }
   });
 
-  const backupTimer = setInterval(() => store.snapshot(), 5 * 60_000);
+  const backupTimer = setInterval(() => { realStore.snapshot(); if (testMode.isActive()) store.snapshot(); }, 5 * 60_000);
   backupTimer.unref();
   const scheduleTimer = setInterval(() => {
     store.activateSchedules();
@@ -1041,8 +1065,8 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     }
   }, 1000);
   scheduleTimer.unref();
-  const close = () => new Promise((resolve) => { clearInterval(backupTimer); clearInterval(scheduleTimer); server.close(() => { store.close(); resolve(); }); server.closeAllConnections?.(); });
-  return { server, store, pin, close, [Symbol.asyncDispose]: close };
+  const close = () => new Promise((resolve) => { clearInterval(backupTimer); clearInterval(scheduleTimer); server.close(() => { testMode.closeAll(); realStore.close(); resolve(); }); server.closeAllConnections?.(); });
+  return { server, store: realStore, testMode, pin, close, [Symbol.asyncDispose]: close };
 }
 
 // ---------- execução direta: `npm start` ou os arquivos "Iniciar-Atlas"

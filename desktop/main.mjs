@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell, Menu, nativeTheme, powerSaveBlocker } from 'electron';
+import { app, BrowserWindow, dialog, shell, Menu, nativeTheme, powerSaveBlocker, safeStorage, session } from 'electron';
 import { execFile } from 'node:child_process';
 import updater from 'electron-updater';
 import fs from 'node:fs';
@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { createApp } from '../server.mjs';
+import { createProfileManager, MAIN_PROFILE } from './profiles.mjs';
 import { updateSafety } from './update-safety.mjs';
 
 const { autoUpdater } = updater;
@@ -16,19 +17,6 @@ let manualUpdateCheck=false;
 let downloadedUpdate=null;
 let updateChannel='beta';
 let updateChannelFile='';
-const MAIN_PROFILE = 'principal';
-
-function loadProfiles() {
-  const file = path.join(app.getPath('userData'), 'profiles.json');
-  try {
-    const profiles = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!Array.isArray(profiles)) throw new Error('Lista de perfis inválida.');
-    return { file, profiles: profiles.filter(({ id, name }) => /^[a-f0-9]{24}$/.test(id) && typeof name === 'string') };
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    return { file, profiles: [] };
-  }
-}
 
 function useUpdateChannel(channel){
   updateChannel=channel==='stable'?'stable':'beta';
@@ -160,6 +148,12 @@ async function allowFirewall() {
   }
 }
 
+// Limpa o cache de páginas do Chromium sem tocar em cookies, preferências do navegador ou dados do professor.
+async function clearWebCache() {
+  await session.defaultSession.clearCache();
+  await session.defaultSession.clearStorageData({ storages: ['cachestorage', 'serviceworkers', 'shadercache'] });
+}
+
 function getPin(dataDir) {
   const pinFile = path.join(dataDir, 'pin.txt');
   const existing = fs.existsSync(pinFile) ? fs.readFileSync(pinFile, 'utf8').trim() : '';
@@ -171,13 +165,16 @@ function getPin(dataDir) {
 }
 
 async function start() {
-  const { file: profileFile, profiles } = loadProfiles();
   const requested = process.argv.find((arg) => arg.startsWith('--atlas-profile='))?.slice('--atlas-profile='.length);
-  const profile = profiles.find(({ id }) => id === requested);
+  let buildMenu = () => {};
+  const manager = createProfileManager({
+    userDataDir: app.getPath('userData'), documentsDir: app.getPath('documents'),
+    activeId: requested, onChange: () => { buildMenu(); },
+  });
+  const profile = requested && requested !== MAIN_PROFILE && manager.exists(requested) ? manager.get(requested) : null;
   const activeProfile = profile?.id ?? MAIN_PROFILE;
-  const dataDir = profile
-    ? path.join(app.getPath('userData'), 'profiles', profile.id)
-    : path.join(app.getPath('userData'), 'data');
+  manager.setActive(activeProfile);
+  const dataDir = manager.dataDirOf(activeProfile);
   fs.mkdirSync(dataDir, { recursive: true });
   updateChannelFile=path.join(app.getPath('userData'),'update-channel.txt');
   updateChannel=app.getVersion().includes('-')?'beta':'stable'; // versão estável acompanha só estáveis, a menos que o professor escolha outro canal
@@ -195,22 +192,18 @@ async function start() {
     app.quit();
   }
   const exportDir = path.join(app.getPath('documents'), 'Atlas', 'Copias');
-  atlas = createApp({ dataDir, pin, exportDir, desktopProfiles: {
-    list: () => ({ active: activeProfile, profiles: [{ id: MAIN_PROFILE, name: 'Principal' }, ...profiles] }),
-    create(name, profilePin) {
-      if (profiles.some((entry) => entry.name.toLowerCase() === name.toLowerCase()) || name.toLowerCase() === 'principal') return false;
-      const id = crypto.randomBytes(12).toString('hex');
-      const directory = path.join(app.getPath('userData'), 'profiles', id);
-      fs.mkdirSync(directory, { recursive: true });
-      fs.writeFileSync(path.join(directory, 'pin.txt'), profilePin + '\n', { mode: 0o600 });
-      const temporary = profileFile + '.tmp';
-      fs.writeFileSync(temporary, JSON.stringify([...profiles, { id, name }]), { mode: 0o600 });
-      fs.renameSync(temporary, profileFile);
-      profiles.push({ id, name });
-      return true;
-    },
+  // Chaves de API ficam criptografadas com o cofre do sistema (DPAPI no Windows) quando disponível.
+  const secretBox = safeStorage.isEncryptionAvailable()
+    ? { encrypt: (text) => safeStorage.encryptString(text).toString('base64'), decrypt: (data) => safeStorage.decryptString(Buffer.from(data, 'base64')) }
+    : undefined;
+  atlas = createApp({ dataDir, pin, exportDir, secretBox, clearAppCache: clearWebCache, desktopProfiles: {
+    list: () => manager.list(),
+    create: (name, profilePin) => manager.create(name, profilePin),
+    rename: (id, name) => { const result = manager.rename(id, name); if (id === activeProfile && window) window.setTitle(`Atlas — ${result.name}`); return result; },
+    changePin: (id, profilePin) => manager.changePin(id, profilePin),
+    remove: (id, options) => manager.remove(id, options),
     switch(id) {
-      if (id !== MAIN_PROFILE && !profiles.some((entry) => entry.id === id)) return false;
+      if (!manager.exists(id)) return false;
       setTimeout(() => switchProfile(id), 600);
       return true;
     },
@@ -243,10 +236,10 @@ async function start() {
     title: `Atlas — ${profile?.name ?? 'Principal'}`,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
+  buildMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Atlas', submenu: [
       ...(!profile ? [{ label: 'Mostrar PIN do perfil principal', click: () => dialog.showMessageBox(window, { type: 'info', title: 'PIN do professor', message: 'Seu PIN: ' + pin }) }] : []),
-      { label: 'Trocar perfil', submenu: [{ id: MAIN_PROFILE, name: 'Principal' }, ...profiles].map(({ id, name }) => ({
+      { label: 'Trocar perfil', submenu: manager.list().profiles.map(({ id, name }) => ({
         label: name, enabled: id !== activeProfile, click: () => switchProfile(id),
       })) },
       { label: 'Endereço para os alunos', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Acesso dos alunos', message: 'Endereços na rede local', detail: studentUrls().join('\n') || 'Conecte o computador à rede Wi-Fi da sala.' }) },
@@ -261,6 +254,7 @@ async function start() {
       { role: 'quit', label: 'Sair' },
     ] },
   ]));
+  buildMenu();
   window.setMenuBarVisibility(true);
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
