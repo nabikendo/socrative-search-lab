@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural } from '../lib/dom.js';
+import { selectSection } from './settings.js';
 
 let root;
 let timer;
@@ -29,27 +30,11 @@ const guard = (fn) => async (event) => { try { await fn(event); } catch (error) 
 const goto = (tab) => window.dispatchEvent(new CustomEvent('atlas:goto', { detail: tab }));
 
 function profileCard() {
-  const name = h('input', { maxlength: 70, required: true, autocomplete: 'off' });
-  const pin = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]{6}', maxlength: 6, required: true, autocomplete: 'new-password' });
   const active = desktopProfiles.profiles.find((profile) => profile.id === desktopProfiles.active);
   return h('div', { class: 'card stack-s' },
-    h('h2', { class: 'headline' }, 'Perfis de professor'),
-    h('p', { class: 'sub' }, `Perfil atual: ${active?.name ?? ''}`),
-    h('form', { class: 'stack-s', onsubmit: guard(async (event) => {
-      event.preventDefault();
-      desktopProfiles = await api('/api/desktop/profiles', { method: 'POST', body: { name: name.value, pin: pin.value } });
-      render();
-      toast('Perfil criado');
-    }) },
-    h('label', { class: 'field' }, 'Nome', name),
-    h('label', { class: 'field' }, 'PIN de seis dígitos', pin),
-    h('button', { class: 'btn secondary', type: 'submit' }, 'Criar perfil')),
-    h('div', { class: 'class-grid' }, desktopProfiles.profiles.filter((profile) => profile.id !== desktopProfiles.active).map((profile) =>
-      h('button', { class: 'btn quiet', onclick: guard(async () => {
-        if (confirm(`Salvar o trabalho e reabrir o Atlas no perfil ${profile.name}?`)) {
-          await api('/api/desktop/profiles/switch', { method: 'POST', body: { id: profile.id } });
-        }
-      }) }, `Abrir ${profile.name}`))));
+    h('h2', { class: 'headline' }, 'Perfis de professores'),
+    h('p', { class: 'caption' }, `Perfil em uso: ${active?.name ?? 'Principal'}. Criar, editar, excluir e trocar de perfil ficam em Configurações › Perfis.`),
+    h('button', { class: 'btn secondary', type: 'button', onclick: () => { selectSection('profiles'); goto('configuracoes'); } }, 'Gerenciar perfis'));
 }
 
 function render() {

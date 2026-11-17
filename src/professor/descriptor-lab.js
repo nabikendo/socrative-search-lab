@@ -31,41 +31,54 @@ function generate() {
   state.error=state.draft?'':'Este descritor não tem gerador automático validado; use a criação orientada.';
   render();
 }
-async function aiEditor() {
-  let models;
-  try { models=(await api('/api/ai/local-models')).models || []; }
-  catch (error) { toast(error.message); return; }
-  if (!models.length) {
-    toast('IA local indisponível: instale o Ollama e um modelo antes de gerar.');
-    return;
+// Descobre qual IA foi escolhida para a tarefa em Configurações › Inteligência artificial.
+async function aiTarget(task) {
+  const choice = (await api('/api/ai/status'))[task];
+  if (choice.provider === 'ollama') {
+    const models = (await api('/api/ai/local-models')).models || [];
+    if (!models.length) { toast('IA local indisponível: instale o Ollama e um modelo, ou escolha outra IA em Configurações › Inteligência artificial.'); return null; }
+    return { ...choice, models, model: models.includes(choice.model) ? choice.model : models[0] };
   }
+  if (!choice.ready) { toast('Configure '+choice.name+' em Configurações › Inteligência artificial.'); return null; }
+  return choice;
+}
+const aiNote = (target) => target.local
+  ? 'A IA local roda no computador e não envia dados para serviços externos.'
+  : 'Usando '+target.name+' · '+target.model+'. O descritor, o texto-base e a questão são enviados ao provedor; dados de alunos nunca são enviados.';
+const aiModelField = (target, label) => target.models
+  ? field(label, h('select',{name:'model'},target.models.map(name=>h('option',{value:name,selected:name===target.model},name)))) : null;
+async function aiEditor() {
+  let target;
+  try { target = await aiTarget('generate'); }
+  catch (error) { toast(error.message); return; }
+  if (!target) return;
   const skill = findSkill(state.skill);
   const form=h('form',{class:'stack-s',onsubmit:async(event)=>{
     event.preventDefault();
     const values=new FormData(form);
     const button=form.querySelector('[type=submit]');
-    button.disabled=true;button.textContent='Gerando no computador…';
+    button.disabled=true;button.textContent=target.local?'Gerando no computador…':'Gerando…';
     try{
       const result=await api('/api/ai/descriptor-question',{method:'POST',body:{
-        skillId:skill.id,model:String(values.get('model')),
+        skillId:skill.id,model:target.models?String(values.get('model')):undefined,
         context:String(values.get('context')||'')}});
       if(state.skill!==skill.id){toast('Você mudou de descritor; a questão gerada não foi inserida.');return;}
       state.draft=result.question;state.error='';dialog.close();render();
       toast('Rascunho gerado. Confira todas as alternativas e o gabarito antes de salvar.');
     }catch(error){toast(error.message);}
-    finally{button.disabled=false;button.textContent='Gerar rascunho com IA local';}
+    finally{button.disabled=false;button.textContent='Gerar rascunho com IA';}
   }},
     h('p',{class:'notice'},'Descritor '+skill.code+': '+skill.description),
-    field('Modelo instalado no computador',h('select',{name:'model'},models.map(name=>h('option',{value:name},name)))),
+    aiModelField(target,'Modelo instalado no computador'),
     field('Texto-base e orientações adicionais (obrigatório para Língua Portuguesa)',h('textarea',{
       name:'context',rows:5,maxLength:8000,
       placeholder:skill.subject==='Língua Portuguesa'?'Cole aqui o texto que o aluno deverá interpretar.':'Opcional: contexto escolar, situações-problema ou conteúdos específicos.'})),
-    h('p',{class:'caption'},'A IA local funciona somente com o Ollama instalado e um modelo disponível. Não envia dados para serviços externos. A validação estrutural não garante resposta correta; revise antes de aplicar.'),
+    h('p',{class:'caption'},aiNote(target)+' A validação estrutural não garante resposta correta; revise antes de aplicar.'),
     h('div',{class:'row'},
       h('button',{class:'btn secondary',type:'button',onclick:()=>dialog.close()},'Cancelar'),
-      h('button',{class:'btn',type:'submit'},'Gerar rascunho com IA local')));
-  const dialog=h('dialog',{class:'atlas-descriptor-editor','aria-label':'Gerar com IA local'},
-    h('h2',{class:'headline'},'Criação assistida por IA local'),form);
+      h('button',{class:'btn',type:'submit'},'Gerar rascunho com IA')));
+  const dialog=h('dialog',{class:'atlas-descriptor-editor','aria-label':'Gerar com IA'},
+    h('h2',{class:'headline'},'Criação assistida por IA'),form);
   document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
 }
 function manualEditor() {
@@ -139,14 +152,14 @@ async function analyze() {
   finally{if(state.skill===selected){state.working=false;render();}}
 }
 async function reviewQuestion(q) {
-  const models=(await api('/api/ai/local-models')).models || [];
-  if(!models.length){toast('IA local indisponível: instale Ollama e um modelo.');return;}
-  const select=h('select',{},models.map(name=>h('option',{value:name},name)));
-  const outcome=h('div',{class:'stack-s'},h('p',{class:'caption'},'Parecer provisório: a revisão do professor continua necessária.'));
+  const target = await aiTarget('review');
+  if (!target) return;
+  const select = target.models ? h('select',{},target.models.map(name=>h('option',{value:name,selected:name===target.model},name))) : null;
+  const outcome=h('div',{class:'stack-s'},h('p',{class:'caption'},'Parecer provisório: a revisão do professor continua necessária. '+aiNote(target)));
   const submit=h('button',{class:'btn',onclick:async()=>{
     submit.disabled=true;submit.textContent='Analisando…';
     try{
-      const result=await api('/api/ai/descriptor-review',{method:'POST',body:{skillId:state.skill,model:select.value,question:q}});
+      const result=await api('/api/ai/descriptor-review',{method:'POST',body:{skillId:state.skill,model:select?select.value:undefined,question:q}});
       clear(outcome,h('p',{class:result.aligned?'notice':'notice warn'},result.aligned?'Possível alinhamento':'Possível divergência'),
         h('p',{},result.justification),
         ...result.improvements.map(text=>h('p',{class:'caption'},'Sugestão: '+text)));
@@ -154,9 +167,9 @@ async function reviewQuestion(q) {
     finally{submit.disabled=false;submit.textContent='Analisar novamente';}
   }},'Analisar questão');
   const dialog=h('dialog',{class:'atlas-descriptor-editor'},
-    h('h2',{class:'headline'},'Análise de questão por IA local'),
+    h('h2',{class:'headline'},'Análise de questão por IA'),
     h('p',{class:'caption'},q.text),
-    field('Modelo',select),outcome,
+    select&&field('Modelo',select),outcome,
     h('div',{class:'row'},submit,h('button',{class:'btn secondary',onclick:()=>dialog.close()},'Fechar')));
   document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
 }
@@ -171,7 +184,7 @@ function questionCard(q,draft=false){
     q.explanation&&h('div',{class:'notice'},'Resolução: '+q.explanation),
     h('div',{class:'row'},
       draft&&h('button',{class:'btn secondary',onclick:()=>save(q).catch(e=>toast(e.message))},'Salvar no banco'),
-      h('button',{class:'btn secondary',onclick:()=>reviewQuestion(q).catch(e=>toast(e.message))},'Analisar com IA local'),
+      h('button',{class:'btn secondary',onclick:()=>reviewQuestion(q).catch(e=>toast(e.message))},'Analisar com IA'),
       h('button',{class:'btn',onclick:()=>goToExam(q)},'Adicionar à prova')));
 }
 function render() {
@@ -204,7 +217,7 @@ function render() {
           h('div',{class:'row'},
             h('button',{class:'btn',disabled:!SUPPORTED_GENERATORS.includes(skill.id),onclick:generate},'Gerar questão offline'),
             h('button',{class:'btn secondary',onclick:manualEditor},'Criar questão orientada'),
-            h('button',{class:'btn secondary',onclick:()=>aiEditor().catch(error=>toast(error.message))},'Criar com IA local'),
+            h('button',{class:'btn secondary',onclick:()=>aiEditor().catch(error=>toast(error.message))},'Criar com IA'),
             h('button',{class:'btn secondary',disabled:state.working,onclick:analyze},state.working?'Analisando…':'Analisar resultados')),
           !SUPPORTED_GENERATORS.includes(skill.id)&&h('p',{class:'caption'},'Não há gerador automático verificado para este descritor. A criação orientada permanece disponível.')),
         state.error&&h('p',{class:'notice warn',role:'alert'},state.error),

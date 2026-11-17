@@ -40,6 +40,16 @@ function showLogin() {
   $('#pin').focus();
 }
 
+// Aviso fixo enquanto o modo de teste estiver ativo: os dados mostrados são fictícios.
+async function syncTestBanner() {
+  $('#test-banner')?.remove();
+  try {
+    if (!(await api('/api/test-mode')).active) return;
+    const leave = h('button', { class: 'btn quiet', type: 'button', onclick: async () => { await api('/api/test-mode', { method: 'POST', body: { action: 'exit' } }); location.reload(); } }, 'Sair do modo de teste');
+    $('#app').prepend(h('div', { id: 'test-banner', class: 'test-banner', role: 'status' }, 'MODO DE TESTE — os dados são fictícios e não afetam seus dados reais.', leave));
+  } catch { /* sem o aviso, o painel continua funcionando */ }
+}
+
 async function showApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
@@ -47,6 +57,7 @@ async function showApp() {
     for (const [name, module] of Object.entries(tabs)) module.mount($(`#tab-${name}`));
     mounted = true;
   }
+  syncTestBanner();
   const { roster: students } = await api('/api/roster');
   openTab(location.hash.slice(1) in tabs ? location.hash.slice(1) : students.length ? 'prova' : 'turma');
 }

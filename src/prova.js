@@ -458,7 +458,14 @@ async function beat() {
     else if (state.paused) { state.paused=false; $('#banner').hidden=true; renderQuestion(); }
     if (Object.keys(state.pending).length && !state.blockedSync) flush();
     flushAway();
-  } catch { /* o indicador de salvamento já avisa sobre a conexão */ }
+  } catch (error) {
+    // 401 = o professor desconectou este aparelho (ou reiniciou a prova): orienta o aluno em vez de ficar em silêncio.
+    if (error?.status === 401) {
+      clearInterval(state.heartbeat);
+      $('#banner').textContent = 'Você foi desconectado pelo professor. Recarregue a página e entre de novo com seu número; suas respostas já enviadas continuam salvas.';
+      $('#banner').hidden = false;
+    } /* nos demais erros, o indicador de salvamento já avisa sobre a conexão */
+  }
 }
 
 // ---------- aviso ao professor quando o aluno sai da página da prova
