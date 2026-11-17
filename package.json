@@ -59,8 +59,8 @@
       "provider": "github",
       "owner": "nabikendo",
       "repo": "socrative-search-lab",
-      "channel": "latest",
-      "releaseType": "release"
+      "channel": "beta",
+      "releaseType": "prerelease"
     },
     "generateUpdatesFilesForAllChannels": true,
     "asar": true,
