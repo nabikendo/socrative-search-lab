@@ -8,14 +8,20 @@ import { openAiSettings } from '../lib/ai-settings.mjs';
 import { plan, publicPlan, execute, listSafetyBackups, safetyBackupPath, createSafetyBackup, MaintenanceError } from '../lib/maintenance.mjs';
 
 const dirs = [];
-afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
+const stores = [];
+// No Windows uma pasta com o banco aberto não pode ser apagada: fecha tudo antes de limpar.
+afterEach(() => {
+  for (const store of stores.splice(0)) { try { store.close(); } catch { /* já fechado no teste */ } }
+  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+const track = (store) => { stores.push(store); return store; };
 
 const choice = { type: 'choice', text: '2+2?', options: ['3', '4'], correct: '4', weight: 1 };
 
 // Perfil realista: duas turmas, prova encerrada com resultados, dois rascunhos e uma prova em andamento.
 function world({ live = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-maint-')); dirs.push(dir);
-  const store = openStore(dir);
+  const store = track(openStore(dir));
   const aiSettings = openAiSettings(dir);
   const preferencesFile = path.join(dir, 'teacher-settings.json');
   fs.writeFileSync(preferencesFile, '{"theme":"dark"}');
@@ -198,9 +204,8 @@ test('redefinir turmas: aluno, turma e perfil; provas ficam sem turma e resultad
   await run(w, 'classes');
   assert.deepEqual([w.store.listClasses().length, w.store.raw.get('SELECT COUNT(*) AS n FROM class_roster').n, w.store.raw.get('SELECT COUNT(*) AS n FROM roster').n], [0, 0, 0]);
   w.store.close();
-  const reopened = openStore(w.dir);
+  const reopened = track(openStore(w.dir));
   assert.equal(reopened.listClasses().length, 0, 'a lista antiga não recria as turmas ao reabrir');
-  reopened.close();
 });
 
 test('redefinir turmas é bloqueado enquanto há prova aberta, pausada ou agendada para ela', async () => {
@@ -247,9 +252,8 @@ test('restaurar o perfil de fábrica: exige prova encerrada, apaga tudo e não r
   assert.equal(fs.existsSync(w.preferencesFile), false);
   assert.equal(w.aiSettings.exists(), false);
   w.store.close();
-  const reopened = openStore(w.dir);
+  const reopened = track(openStore(w.dir));
   assert.equal(reopened.listExams().length, 0, 'não reaparece a prova de exemplo');
-  reopened.close();
 });
 
 test('backup automático antes de apagar: é criado, restaurável e pode ser dispensado', async () => {

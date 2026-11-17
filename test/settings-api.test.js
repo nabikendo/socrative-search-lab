@@ -9,7 +9,8 @@ import { DEMO_PREFIX, seedDemo } from '../lib/demo.mjs';
 
 let app, base, admin, dir, exportDir, cacheCleared = 0;
 const call = async (url, { method = 'GET', body, cookie = admin } = {}) => {
-  const res = await fetch(base + url, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  // connection: close evita reaproveitar um socket que o servidor encerrou (falha intermitente no Windows).
+  const res = await fetch(base + url, { method, headers: { connection: 'close', ...(body ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
   const type = res.headers.get('content-type') || '';
   return { status: res.status, data: type.includes('json') ? await res.json() : await res.text() };
 };
@@ -145,7 +146,7 @@ test('limpeza via HTTP: prévia, confirmação, backup de segurança e download'
   assert.equal(download.status, 200); assert.equal(download.data.format, 'atlas-backup');
   assert.equal((await call('/api/maintenance/backups/..%2Fatlas.sqlite')).status, 400);
 
-  const restore = await fetch(base + '/api/restore', { method: 'POST', headers: { cookie: admin }, body: JSON.stringify(download.data) });
+  const restore = await fetch(base + '/api/restore', { method: 'POST', headers: { cookie: admin, connection: 'close' }, body: JSON.stringify(download.data) });
   assert.equal(restore.status, 200);
   assert.equal(real().sessions, before.sessions);
 });
