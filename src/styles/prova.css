@@ -71,3 +71,15 @@ dialog.sheet[open] { display: flex; }
   .q-nav .btn.quiet { grid-column: 1 / -1; order: 3; }
   .q-nav .btn { width: 100%; }
 }
+
+/* revisão antes de enviar: números clicáveis */
+.review-lists { display: grid; gap: 12px; margin: 4px 0; }
+.review-list { display: grid; gap: 6px; }
+.review-list.blank strong { color: var(--danger); }
+.review-list.flagged strong { color: var(--warn); }
+.review-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.review-chip { min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.review-chip:hover { background: var(--fill); }
+/* aviso de tempo (5 e 1 minuto) */
+.time-alert { font-weight: 600; text-align: center; }
+#help-button[aria-pressed="true"] { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--text); }

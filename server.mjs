@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -16,6 +17,10 @@ import { openAiSettings } from './lib/ai-settings.mjs';
 import { registerAiRoutes } from './lib/ai-routes.mjs';
 import { registerMaintenanceRoutes } from './lib/maintenance-routes.mjs';
 import { createTestMode } from './lib/test-mode.mjs';
+import { openSecuritySettings, cleanDeviceId, clientIp, deviceLabel, isLoopback } from './lib/security.mjs';
+import { ensureCertificate } from './lib/tls.mjs';
+import { createPresenceHub } from './lib/presence.mjs';
+import { registerClassroomRoutes } from './lib/classroom.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -26,7 +31,7 @@ class HttpError extends Error {
   constructor(status, code, message) { super(message || code); this.status = status; this.code = code; }
 }
 
-export function createApp({ dataDir = path.join(root, 'data'), pin = process.env.ATLAS_PIN || String(crypto.randomInt(100000, 1000000)), desktopProfiles, exportDir, secretBox, aiFetch, clearAppCache } = {}) {
+export function createApp({ dataDir = path.join(root, 'data'), pin = process.env.ATLAS_PIN || String(crypto.randomInt(100000, 1000000)), desktopProfiles, exportDir, secretBox, aiFetch, clearAppCache, securePort = Number(process.env.ATLAS_HTTPS_PORT || 8443) } = {}) {
   const realStore = openStore(dataDir);
   // `store` sempre aponta para o banco ativo: o real ou, no modo de teste, o banco isolado (lib/test-mode.mjs).
   // Verificações de segurança do aplicativo (atualização, troca de perfil) usam `realStore` e nunca enxergam dados fictícios.
@@ -41,7 +46,14 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   let watchedExamId = null; // prova aberta que acompanhamos para copiar quando ela terminar sozinha
   const awayLogged = new Set(); // evita contar duas vezes o mesmo retorno reenviado
   const devices = new Map(); // aparelhos de alunos que abriram a página (para o diagnóstico de rede)
-  const resetPresence = () => { lastSeen.clear(); awayNow.clear(); awayLogged.clear(); devices.clear(); watchedExamId = null; };
+  // Presença e segurança (Sprints 2 e 5): tudo em memória, sem escrita em disco a cada batimento.
+  const security = openSecuritySettings(dataDir);
+  const secure = { server: null, port: null, cert: null, error: null }; // servidor HTTPS da rede (Sprint 5)
+  const presenceState = new Map(); // sessionId -> 'online' | 'left' (para registrar entrada e saída uma vez só)
+  const explicitlyLeft = new Set(); // aluno fechou a página (aviso do navegador): sai na hora, sem esperar 30 s
+  const helpRequests = new Map(); // sessionId -> { at, count }
+  const conflicts = new Map(); // sessionId -> tentativas em outro aparelho
+  const resetPresence = () => { lastSeen.clear(); awayNow.clear(); awayLogged.clear(); devices.clear(); watchedExamId = null; presenceState.clear(); explicitlyLeft.clear(); helpRequests.clear(); conflicts.clear(); };
   testMode = createTestMode({ realStore, dataDir, onSwitch: resetPresence });
   const realOnly = () => { if (testMode.isActive()) throw new HttpError(409, 'test_mode_active', 'Saia do modo de teste para exportar ou restaurar dados reais.'); };
   let appVersion = '0.0.0';
@@ -87,7 +99,8 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   };
 
   // ---------- regras
-  const isOnline = (s) => s.status !== 'submitted' && Date.now() - Math.max(s.lastSeen, lastSeen.get(s.id) || 0) < ONLINE_MS;
+  const lastActivity = (s) => Math.max(s.lastSeen || 0, lastSeen.get(s.id) || 0);
+  const isOnline = (s) => s.status !== 'submitted' && !explicitlyLeft.has(s.id) && Date.now() - lastActivity(s) < ONLINE_MS;
   const publicExam = (exam) => ({
     id: exam.id, title: exam.title, shuffle: exam.shuffle, feedback: exam.feedback,
     questions: studentQuestions(exam.questions),
@@ -103,7 +116,11 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   }
   function studentSession(input) {
     const session = store.getSession(String(input.sessionId || ''));
-    if (!session || !same(session.token, String(input.token || ''))) throw new HttpError(401, 'invalid_session');
+    if (!session || !same(session.token, String(input.token || ''))) throw new HttpError(401, 'invalid_session', 'Este aparelho foi desconectado. Recarregue a página e entre de novo com seu número.');
+    // Validade curta do acesso (mitigação obrigatória em HTTP): quem fica sem batimento além do prazo precisa entrar de novo.
+    if (session.status !== 'submitted' && Date.now() - lastActivity(session) > security.ttlMs()) {
+      throw new HttpError(401, 'session_expired', 'Seu acesso expirou por inatividade. Entre de novo com seu número.');
+    }
     return session;
   }
   function accommodation(studentId) {
@@ -249,10 +266,102 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return new Intl.DurationFormat('pt-BR', { style: 'short' }).format(Object.keys(present).length ? present : { seconds: 0 });
   }
 
-  function lanUrls(port) {
+  const lanIps = () => {
     const rank = (ip) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : 2);
     return Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal)
-      .map((i) => i.address).sort((a, b) => rank(a) - rank(b)).map((ip) => `http://${ip}:${port}`);
+      .map((i) => i.address).sort((a, b) => rank(a) - rank(b));
+  };
+  function lanUrls(port, scheme = 'http') {
+    return lanIps().map((ip) => `${scheme}://${ip}:${port}`);
+  }
+  // Endereços que vão para o QR Code dos alunos, conforme o modo de segurança (HTTPS primeiro no modo auto).
+  function studentUrls(httpPort) {
+    const { mode } = security.get();
+    const secureUrls = secure.server ? lanUrls(secure.port, 'https') : [];
+    if (mode === 'https' && secureUrls.length) return secureUrls;
+    if (mode === 'auto' && secureUrls.length) return [...secureUrls, ...lanUrls(httpPort)];
+    return lanUrls(httpPort);
+  }
+
+  // ---------- presença em tempo real (Sprint 2)
+  function presenceLog(examId, event, session, extra = {}) {
+    try { store.addAudit(`presence_${event}`, examId, JSON.stringify({ number: session.number, name: session.name, ...extra })); } catch { /* auditoria é melhor esforço */ }
+  }
+  function presenceSnapshot(examId) {
+    const exam = needExam(examId);
+    const roster = exam.classId ? store.classRoster(exam.classId) : store.getRoster();
+    const sessions = store.listSessions(exam.id);
+    const byNumber = new Map(sessions.map((session) => [session.number, session]));
+    const listed = new Set(roster.map((student) => student.number));
+    const row = (student, session, outsideRoster = false) => {
+      const state = !session ? 'absent' : session.status === 'submitted' ? 'submitted' : isOnline(session) ? 'online' : 'left';
+      const last = session ? lastActivity(session) : 0;
+      return {
+        number: student.number, name: student.name || session?.name || '', className: student.className || session?.className || '',
+        sessionId: session?.id ?? null, state, outsideRoster,
+        enteredAt: session?.startedAt ?? null, submittedAt: session?.submittedAt ?? null, lastSeenAt: last ? new Date(last).toISOString() : null,
+        device: session?.deviceLabel ?? '', ip: session?.lastIp ?? '', deviceReleased: session?.deviceState === 'released',
+        help: session && helpRequests.has(session.id) ? helpRequests.get(session.id).at : null, helpCount: session ? helpRequests.get(session.id)?.count ?? 0 : 0,
+        conflicts: session ? conflicts.get(session.id) ?? 0 : 0, away: !!session && state === 'online' && awayNow.has(session.id),
+      };
+    };
+    const students = [...roster.map((student) => row(student, byNumber.get(student.number))),
+      ...sessions.filter((session) => !listed.has(session.number)).map((session) => row({ number: session.number, name: session.name, className: session.className }, session, true))]
+      .sort((a, b) => Number(a.number) - Number(b.number) || a.name.localeCompare(b.name));
+    const inRoster = students.filter((student) => !student.outsideRoster);
+    const count = (state) => students.filter((student) => student.state === state).length;
+    const audit = store.listPresenceAudit(exam.id, 300).map((entry) => {
+      let detail = {}; try { detail = JSON.parse(entry.detail); } catch { /* registro antigo */ }
+      return { event: entry.event.slice('presence_'.length), at: entry.createdAt, ...detail };
+    });
+    return {
+      exam: { id: exam.id, title: exam.title, status: exam.status }, mode: security.get().mode, serverNow: Date.now(),
+      counts: { total: roster.length, entered: inRoster.filter((s) => s.state !== 'absent').length, online: count('online'), submitted: count('submitted'), left: count('left'), absent: count('absent'),
+        help: students.filter((s) => s.help).length, conflicts: students.filter((s) => s.conflicts).length },
+      students, audit,
+    };
+  }
+  const presenceHub = createPresenceHub({ snapshot: presenceSnapshot });
+  const forgetSession = (id) => { lastSeen.delete(id); awayNow.delete(id); presenceState.delete(id); explicitlyLeft.delete(id); helpRequests.delete(id); conflicts.delete(id); };
+  const presence = {
+    hub: presenceHub, snapshot: presenceSnapshot,
+    release(session) {
+      store.releaseDevice(session.id);
+      forgetSession(session.id);
+      presenceLog(session.examId, 'device_released', session, { ip: session.lastIp, device: session.deviceLabel });
+      presenceHub.notify(session.examId);
+    },
+    setHelp(session, on) {
+      const current = helpRequests.get(session.id);
+      if (on && !current) {
+        helpRequests.set(session.id, { at: new Date().toISOString(), count: 1 });
+        presenceLog(session.examId, 'help', session);
+      } else if (!on && current) helpRequests.delete(session.id);
+      presenceHub.notify(session.examId);
+    },
+    answerHelp(session) {
+      if (helpRequests.delete(session.id)) presenceLog(session.examId, 'help_answered', session);
+      presenceHub.notify(session.examId);
+    },
+    markLeft(session) { if (session.status !== 'submitted') { explicitlyLeft.add(session.id); sweepPresence(); } },
+  };
+  // Detecta quem saiu (sem batimento por 30 s ou página fechada) e avisa o painel.
+  function sweepPresence() {
+    for (const { id: examId } of store.raw.all("SELECT id FROM exams WHERE status IN ('open','paused')")) {
+      let changed = false;
+      for (const session of store.listSessions(examId)) {
+        if (session.status === 'submitted') continue;
+        const online = isOnline(session);
+        const known = presenceState.get(session.id);
+        if (online && known !== 'online') { presenceState.set(session.id, 'online'); changed = true; }
+        else if (!online && known === 'online') {
+          presenceState.set(session.id, 'left');
+          presenceLog(examId, 'left', session, { ip: session.lastIp, device: session.deviceLabel, reason: explicitlyLeft.has(session.id) ? 'fechou a página' : 'sem sinal' });
+          changed = true;
+        }
+      }
+      if (changed) presenceHub.notify(examId);
+    }
   }
 
   // ---------- rotas
@@ -304,14 +413,33 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     if (!student) throw new HttpError(404, 'student_not_found', 'Número não encontrado na lista.');
 
     if (applicationEnded(exam, student.id)) throw new HttpError(409, 'exam_closed', 'Seu tempo de prova terminou.');
+    // Vínculo por aparelho (mitigação obrigatória em HTTP): o primeiro aparelho que entra com o número fica
+    // vinculado; outro aparelho só entra depois que o professor libera. As respostas nunca são apagadas.
+    const device = { deviceId: cleanDeviceId(input.deviceId), label: deviceLabel(req.headers['user-agent']), ip: clientIp(req) };
     let session = store.findSession(exam.id, student.number);
-    if (!session) session = store.createSession(exam.id, student.number, student);
-    else if (session.status === 'submitted') throw new HttpError(409, 'already_submitted', 'Esta prova já foi enviada. Fale com o professor.');
-    else if (!same(session.token, String(input.token || ''))) {
-      if (isOnline(session)) throw new HttpError(409, 'session_in_use', 'Este número já está em uso em outro aparelho.');
-      session = store.rotateToken(session.id); // aluno trocou de aparelho depois que o anterior ficou inativo
+    let event = null;
+    if (!session) {
+      session = store.bindDevice(store.createSession(exam.id, student.number, student).id, device);
+      event = 'entered';
+    } else if (session.status === 'submitted') throw new HttpError(409, 'already_submitted', 'Esta prova já foi enviada. Fale com o professor.');
+    else {
+      const tokenOk = same(session.token, String(input.token || ''));
+      const fresh = Date.now() - lastActivity(session) <= security.ttlMs();
+      if (session.deviceState === 'released') { session = store.bindDevice(session.id, device); event = 'device_rebound'; }
+      else if (tokenOk && fresh) { store.noteDevice(session.id, device); event = presenceState.get(session.id) === 'online' ? null : 'returned'; }
+      else if ((device.deviceId && device.deviceId === session.deviceId) || (tokenOk && !session.deviceId)) { session = store.bindDevice(session.id, device); event = 'returned'; }
+      else {
+        conflicts.set(session.id, (conflicts.get(session.id) || 0) + 1);
+        presenceLog(exam.id, 'device_conflict', session, { ip: device.ip, device: device.label, boundIp: session.lastIp, boundDevice: session.deviceLabel });
+        presenceHub.notify(exam.id);
+        throw new HttpError(409, 'session_in_use', 'Este número já está em uso em outro aparelho. Se você trocou de aparelho, peça ao professor para liberar o dispositivo.');
+      }
     }
     lastSeen.set(session.id, Date.now());
+    explicitlyLeft.delete(session.id);
+    presenceState.set(session.id, 'online');
+    if (event) presenceLog(exam.id, event, session, { ip: device.ip, device: device.label });
+    presenceHub.notify(exam.id);
     return { session: { id: session.id, token: session.token }, student: { number: student.number, name: student.name, className: student.className, accommodation: accommodation(session.studentId) }, exam: publicExam(exam), answers: store.getAnswers(session.id) };
   });
   route('POST', '/api/session/heartbeat', async ({ req }) => {
@@ -319,10 +447,16 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     seenDevice(req);
     store.activateSchedules();
     lastSeen.set(session.id, Date.now());
+    explicitlyLeft.delete(session.id);
+    if (session.status !== 'submitted' && presenceState.get(session.id) !== 'online') {
+      if (presenceState.get(session.id) === 'left') presenceLog(session.examId, 'returned', session, { ip: clientIp(req), device: deviceLabel(req.headers['user-agent']) });
+      presenceState.set(session.id, 'online');
+      presenceHub.notify(session.examId);
+    }
     const exam = store.getExam(session.examId);
     const endsAt = exam?.scheduledEnd ? Date.parse(exam.scheduledEnd) + Number(accommodation(session.studentId).extraMinutes || 0) * 60_000 : null;
     return { ok: true, serverNow: Date.now(), endsAt, examOpen: exam?.status === 'open' && !applicationEnded(exam, session.studentId), examPaused:exam?.status==='paused', studentPaused:session.status==='paused', submitted: session.status === 'submitted',
-      receipt: session.submittedAt ? { number: session.id, submittedAt: session.submittedAt } : null };
+      receipt: session.submittedAt ? { number: session.id, submittedAt: session.submittedAt } : null, help: helpRequests.has(session.id) };
   });
   route('POST', '/api/session/away', async ({ req }) => {
     limit(req, 'away', 120);
@@ -351,6 +485,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     if (session.status === 'submitted') return { receipt: { number: session.id, submittedAt: session.submittedAt } };
     if (!['open', 'paused'].includes(exam.status)) throw new HttpError(409, 'exam_closed', 'A prova foi encerrada.');
     lastSeen.set(session.id, Date.now());
+    explicitlyLeft.delete(session.id);
     return {
       session: { id: session.id, token: session.token },
       student: { number: session.number, name: session.name, className: session.className, accommodation: accommodation(session.studentId) },
@@ -410,8 +545,13 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   route('POST', '/api/session/submit', async ({ req }) => {
     const session = studentSession(await readJson(req));
     if (session.status === 'paused' || store.getExam(session.examId)?.status === 'paused') throw new HttpError(423, 'exam_paused', 'A prova está pausada pelo professor.');
+    const firstSubmit = session.status !== 'submitted';
     store.submit(session.id);
     awayNow.delete(session.id);
+    helpRequests.delete(session.id);
+    presenceState.delete(session.id);
+    if (firstSubmit) presenceLog(session.examId, 'submitted', session, { ip: clientIp(req) });
+    presenceHub.notify(session.examId);
     return { ok: true, receipt: { number: session.id, submittedAt: store.getSession(session.id).submittedAt } };
   });
   let ocrRunning = false;
@@ -546,7 +686,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     store.addAudit('teacher_settings_changed','settings','Preferências do professor atualizadas');
     return settings;
   });
-  route('GET', '/api/network', { admin: true }, ({ req }) => ({ urls: lanUrls(req.socket.localPort) }));
+  route('GET', '/api/network', { admin: true }, ({ req }) => ({ urls: studentUrls(req.socket.localPort), mode: security.get().mode, httpUrls: lanUrls(req.socket.localPort) }));
   route('GET', '/api/roster', { admin: true }, () => ({ roster: store.getRoster() }));
   route('GET', '/api/classes', { admin: true }, ({ url }) => ({ classes: store.listClasses({ includeArchived:url.searchParams.get('all') === '1' }) }));
   route('GET', '/api/join-requests', { admin:true }, () => ({ requests:store.pendingJoinRequests() }));
@@ -670,8 +810,10 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   // Limpeza e redefinição, backups de segurança e modo de teste (lib/maintenance-routes.mjs).
   registerMaintenanceRoutes({
     route, readJson, HttpError, limit, store, aiSettings, dataDir, testMode, version: appVersion,
-    hooks: { forgetPresence: (ids) => { for (const id of ids) { lastSeen.delete(id); awayNow.delete(id); } }, clearAppCache },
+    hooks: { forgetPresence: (ids) => { for (const id of ids) forgetSession(id); }, clearAppCache },
   });
+  // Presença em tempo real, pedido de ajuda e segurança da rede (lib/classroom.mjs).
+  registerClassroomRoutes({ route, readJson, readBody, HttpError, limit, store, presence, security, secure, csvCell, lanUrls, studentSession });
   route('GET', '/api/question-bank', { admin: true }, () => ({ questions: store.listBankQuestions() }));
   route('POST', '/api/question-bank', { admin: true }, async ({ req }) => {
     try { return { question: store.saveBankQuestion(await readJson(req)) }; }
@@ -1020,11 +1162,34 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
 
   const sameOrigin = (origin, host) => { try { return new URL(origin).host === host; } catch { return false; } };
 
+  // Modo de segurança: decide o que a rede pode acessar por HTTP ou por HTTPS. O computador do professor
+  // (127.0.0.1) sempre usa HTTP local, que não passa pela rede. /diag/ fica aberto nos dois para o diagnóstico.
+  function enforceSecurity(req, res, url) {
+    if (url.pathname.startsWith('/diag/')) return false;
+    const { mode } = security.get();
+    if (req.socket.encrypted) {
+      if (mode !== 'http') return false;
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('O HTTPS do Atlas está desligado neste computador. Use o endereço com http:// mostrado pelo professor.');
+      return true;
+    }
+    if (mode !== 'https' || isLoopback(clientIp(req)) || !secure.server) return false;
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      const host = String(req.socket.localAddress || '').replace(/^::ffff:/, '');
+      res.writeHead(302, { location: `https://${host}:${secure.port}${url.pathname}${url.search}`, 'cache-control': 'no-store' });
+      res.end();
+      return true;
+    }
+    sendJson(res, 403, { error: 'https_required', message: 'Esta sala usa conexão segura. Abra o endereço com https:// mostrado pelo professor.' });
+    return true;
+  }
+
   // ---------- servidor
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (!url.pathname.startsWith('/api/')) {
+      if (enforceSecurity(req, res, url)) return;
+      if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/diag/')) {
         if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'method_not_allowed');
         return serveStatic(req, res, url.pathname);
       }
@@ -1053,6 +1218,40 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     }
   });
 
+  // Servidor HTTPS da rede (usa o mesmo tratamento de requisições). Fica sempre no ar para o /diag/https;
+  // as demais páginas só respondem por ele nos modos https e auto.
+  const secureReady = (async () => {
+    if (securePort === false) return;
+    try {
+      secure.cert = await ensureCertificate(dataDir, lanIps());
+      const tlsServer = https.createServer({ key: secure.cert.key, cert: secure.cert.cert }, (req, res) => server.emit('request', req, res));
+      await new Promise((resolve, reject) => {
+        const tryPort = (port, fallback) => {
+          tlsServer.once('error', (error) => (error.code === 'EADDRINUSE' && fallback ? tryPort(0, false) : reject(error)));
+          tlsServer.listen(port, '0.0.0.0', () => { tlsServer.removeAllListeners('error'); resolve(); });
+        };
+        tryPort(securePort, securePort !== 0);
+      });
+      tlsServer.on('error', (error) => { secure.error = error.message; });
+      secure.server = tlsServer;
+      secure.port = tlsServer.address().port;
+    } catch (error) { secure.error = error.message; }
+  })();
+  // Wi-Fi trocado: refaz o certificado para os IPs novos sem reiniciar o Atlas.
+  const certTimer = setInterval(async () => {
+    if (!secure.server || lanIps().every((ip) => secure.cert.ips.includes(ip))) return;
+    try { secure.cert = await ensureCertificate(dataDir, lanIps()); secure.server.setSecureContext({ key: secure.cert.key, cert: secure.cert.cert }); } catch (error) { secure.error = error.message; }
+  }, 30_000);
+  certTimer.unref();
+  const presenceTimer = setInterval(() => {
+    try { sweepPresence(); } catch { /* banco fechado durante o encerramento */ }
+  }, 2000);
+  presenceTimer.unref();
+  // A última atividade fica em memória; a cada minuto vai para o disco (para a validade do acesso sobreviver a um reinício).
+  const lastSeenTimer = setInterval(() => {
+    try { store.persistLastSeen([...lastSeen.entries()]); } catch { /* banco fechado */ }
+  }, 60_000);
+  lastSeenTimer.unref();
   const backupTimer = setInterval(() => { realStore.snapshot(); if (testMode.isActive()) store.snapshot(); }, 5 * 60_000);
   backupTimer.unref();
   const scheduleTimer = setInterval(() => {
@@ -1066,8 +1265,15 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     }
   }, 1000);
   scheduleTimer.unref();
-  const close = () => new Promise((resolve) => { clearInterval(backupTimer); clearInterval(scheduleTimer); server.close(() => { testMode.closeAll(); realStore.close(); resolve(); }); server.closeAllConnections?.(); });
-  return { server, store: realStore, testMode, pin, close, [Symbol.asyncDispose]: close };
+  const close = async () => {
+    await secureReady;
+    for (const timer of [backupTimer, scheduleTimer, certTimer, presenceTimer, lastSeenTimer]) clearInterval(timer);
+    presenceHub.close();
+    try { store.persistLastSeen([...lastSeen.entries()]); } catch { /* banco já fechado */ }
+    if (secure.server) await new Promise((resolve) => { secure.server.close(resolve); secure.server.closeAllConnections?.(); });
+    await new Promise((resolve) => { server.close(() => { testMode.closeAll(); realStore.close(); resolve(); }); server.closeAllConnections?.(); });
+  };
+  return { server, store: realStore, testMode, pin, close, secureReady, secure, security, studentUrls, [Symbol.asyncDispose]: close };
 }
 
 // ---------- execução direta: `npm start` ou os arquivos "Iniciar-Atlas"
@@ -1090,15 +1296,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else console.error(error);
     process.exit(1);
   });
-  app.server.listen(port, '0.0.0.0', () => {
-    const ips = Object.values(os.networkInterfaces()).flat().filter((i) => i?.family === 'IPv4' && !i.internal).map((i) => i.address);
+  app.server.listen(port, '0.0.0.0', async () => {
+    await app.secureReady;
+    const urls = app.studentUrls(port);
     console.log('  O Atlas está no ar.\n');
     console.log('  PROFESSOR (neste computador)');
     console.log(`    http://localhost:${port}/professor`);
     console.log(`    PIN: ${app.pin}\n`);
     console.log('  ALUNOS (celular, tablet ou Chromebook na mesma rede Wi-Fi)');
-    for (const ip of ips) console.log(`    http://${ip}:${port}/prova`);
-    if (!ips.length) console.log('    Nenhuma rede encontrada: conecte este computador ao Wi-Fi da sala.');
+    for (const url of urls) console.log(`    ${url}/prova`);
+    if (app.security.get().mode !== 'http') console.log(`    (modo ${app.security.get().mode}: os alunos verão um aviso de certificado; veja AUDIT.md)`);
+    if (!urls.length) console.log('    Nenhuma rede encontrada: conecte este computador ao Wi-Fi da sala.');
     console.log('\n  Dica: o painel do professor mostra um QR Code para os alunos.\n');
   });
   const stop = async () => { await app.close(); process.exit(0); };

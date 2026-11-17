@@ -25,7 +25,7 @@ const general = [
 ];
 const sections = [
   ['general', 'Geral'], ['profiles', 'Perfis'], ['ai', 'Inteligência artificial'],
-  ['data', 'Dados e limpeza'], ['test', 'Modo de teste'], ['about', 'Rede e sobre'],
+  ['security', 'Segurança'], ['data', 'Dados e limpeza'], ['test', 'Modo de teste'], ['about', 'Rede e sobre'],
 ];
 
 const status = (message) => { const el = root?.querySelector('#settings-status'); if (el) el.textContent = message; };
@@ -74,6 +74,7 @@ const renderers = {
   about: renderAbout,
   profiles: async (target) => (await import('./settings-profiles.js')).render(target, { status }),
   ai: async (target) => (await import('./settings-ai.js')).render(target, { status }),
+  security: async (target) => (await import('./settings-security.js')).render(target, { status }),
   data: async (target) => (await import('./settings-data.js')).render(target, { status }),
   test: async (target) => (await import('./settings-testmode.js')).render(target, { status }),
 };

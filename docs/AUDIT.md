@@ -26,7 +26,7 @@ Revisão completa do código, com os problemas reproduzidos no servidor antigo a
 
 ## Riscos que permanecem
 
-1. **Rede local sem HTTPS.** Um aluno com conhecimento técnico pode observar tráfego do Wi‑Fi. Use rede com senha própria.
+1. **Rede local sem HTTPS.** Um aluno com conhecimento técnico pode observar tráfego do Wi‑Fi. Tratado na Sprint 5 (abaixo): HTTPS opcional e mitigações obrigatórias em HTTP. A rede controlada passou a ser **requisito**.
 2. **Código de 4 dígitos.** Há limite de tentativas por endereço, mas não é uma barreira contra um ataque deliberado.
 3. **Sem controle de tempo** de prova no servidor.
 4. **Backups só do banco**; os anexos precisam de cópia manual da pasta `data/`.
@@ -66,3 +66,72 @@ Os pacotes ZIP passam a embutir o Node 26.13.1 (LTS, com as correções de segur
 - A interface não libera gabarito ao aluno: a preferência correspondente é armazenada, mas sua aplicação exige autorização e verificação explícita do servidor.
 - A regeneração de códigos e exclusão em lote não foram habilitadas para evitar invalidação de sessões ou perda de dados.
 - Risco residual: tráfego HTTP na rede local, conforme auditoria anterior. A branch não altera o modelo de rede.
+
+
+## Sprint 5 — Segurança da rede: diagnóstico HTTPS e mitigações em HTTP (17/11/2026)
+
+### Decisão
+
+O Atlas roda num computador da sala e os alunos usam Chromebooks gerenciados pela SEDUC, celulares e tablets. HTTPS de verdade exigiria um certificado assinado por uma autoridade reconhecida para um IP local, o que não existe. A alternativa é um **certificado autoassinado**, que faz cada aparelho mostrar o aviso "Sua conexão não é particular". Em Chromebooks gerenciados, a política da escola pode **impedir** que o aluno continue depois desse aviso.
+
+Por isso:
+
+- **Modo padrão: `http` com mitigações obrigatórias.** Funciona em qualquer aparelho e não pode ter as mitigações desligadas.
+- **`https` e `auto` existem**, mas só devem ser ligados depois do diagnóstico num Chromebook real da escola.
+- **Rede controlada é REQUISITO, não recomendação:** o hotspot do professor ou um Wi-Fi só da turma, com senha. Sem isso, qualquer aparelho na mesma rede pode observar o tráfego HTTP.
+
+### Resultado do diagnóstico em Chromebook real
+
+| Situação | Resultado |
+|---|---|
+| Chromebook gerenciado da SEDUC | **Incerto: ainda não testado.** Rodar `/diag/https` e registrar aqui. |
+| Navegador comum (Chrome/Edge em Windows, Chromium no Linux) | **Viável com aviso:** a página abre depois de "Avançado › Continuar" (verificado no Chromium 150 do Electron 43). |
+
+Como testar: no Chromebook, na rede da sala, abrir `http://<IP do professor>:<porta>/diag/https` e tocar em "Testar HTTPS neste aparelho". O resultado (funcionou, funcionou com aviso, bloqueado, incerto) aparece em Configurações › Segurança. Se o Chromebook bloquear, manter `http`; se funcionar com aviso, `auto` é aceitável; `https` só se todos os aparelhos da turma passarem.
+
+### Os três modos
+
+| Modo | Alunos | Professor | Aviso de certificado |
+|---|---|---|---|
+| `http` (padrão) | `http://IP:porta/prova` | `http://127.0.0.1` (local) | Não |
+| `auto` | QR Code com `https://IP:8443/prova`; o endereço HTTP continua aceito | local | Sim, no HTTPS |
+| `https` | só `https://IP:8443/prova`; páginas por HTTP na rede são redirecionadas e a API por HTTP é recusada (403 `https_required`) | local (o computador do professor não passa pela rede) | Sim |
+
+- O certificado é autoassinado, válido por 397 dias para `localhost`, `127.0.0.1` e os IPs da rede, guardado em `<dados>/tls` (chave com permissão 600).
+- Se o computador trocar de Wi-Fi (IP novo), o certificado é refeito sem reiniciar.
+- A impressão digital (SHA-256) aparece em Configurações › Segurança e no `/diag/https`, para conferência.
+- O servidor HTTPS fica sempre no ar na porta 8443 (ou outra livre; variável `ATLAS_HTTPS_PORT`). No modo `http`, ele só responde ao diagnóstico.
+- O aplicativo Android do aluno usa WebView e **não aceita certificado autoassinado**. Com o aplicativo Android, use `http` ou `auto`.
+
+### Mitigações sempre ativas (obrigatórias em `http`, mantidas em todos os modos)
+
+1. **Acesso com validade curta:** o token do aluno vence após 10 min sem sinal (configurável de 2 a 120 min). Ele se renova a cada batimento (10 s) enquanto a prova está aberta, e o mesmo aparelho renova sozinho depois de uma tela apagada ou queda curta. Um token capturado na rede vale no máximo até o fim da validade e, vencido, só é renovado pelo aparelho vinculado.
+2. **Vínculo por aparelho:** o primeiro aparelho que entra com o número fica vinculado. Outro aparelho é recusado (409) até o professor tocar em "Liberar dispositivo" no painel de presença. As respostas nunca são apagadas pela troca.
+3. **Auditoria:** IP, aparelho, entrada, saída (por fechamento da página ou falta de sinal), volta, envio, troca de aparelho, tentativas em outro aparelho e pedidos de ajuda. Fica no painel de presença e no CSV da chamada.
+4. **Detecção de anomalia:** o mesmo aluno tentando entrar em dois aparelhos gera um alerta vermelho no painel, com IP e tipo dos dois aparelhos.
+5. A última atividade fica em memória e vai ao disco a cada minuto, para a validade sobreviver a um reinício do Atlas sem escrever no disco a cada batimento.
+
+### Risco residual
+
+- **Em `http`, o tráfego continua legível** para quem estiver na mesma rede: código da prova, número do aluno e respostas. As mitigações limitam o reaproveitamento de um acesso capturado, mas não impedem a leitura. Isso só é aceitável numa rede controlada.
+- **Em `https`/`auto`, o aviso de certificado ensina o aluno a aceitar avisos.** Um atacante na mesma rede poderia apresentar outro certificado; a defesa é a rede controlada e a conferência da impressão digital pelo professor.
+- O identificador do aparelho fica no navegador. Se o aluno limpar os dados ou usar aba anônima, o aparelho vira "outro" e precisa de liberação do professor.
+- O IP é o informado pela conexão. Atrás de NAT ou proxy, vários aparelhos podem aparecer com o mesmo IP.
+
+## Sprint 2 — Painel de presença em tempo real (17/11/2026)
+
+- **Tempo real por Server-Sent Events** (`/api/exams/:id/presence/stream`), escolhido em vez de WebSocket. Só o servidor precisa enviar, funciona em HTTP simples, o navegador reconecta sozinho e passa por proxies da rede como uma requisição comum. As mudanças são agrupadas em 150 ms (30 alunos entrando juntos geram um envio).
+- **Decisão de UX: quem fecha o navegador fica como "Saiu"** (amarelo), dentro de "Entraram", e não volta para "Não entraram". Ele esteve presente, e a chamada não pode perder isso. Sai na hora quando o navegador avisa o fechamento (`sendBeacon`) ou em até 30 s sem sinal. Ao voltar, aparece de novo como "Em prova" e o registro mostra "Voltou".
+- "Liberar dispositivo" revoga o token, desfaz o vínculo e mantém as respostas. O próximo aparelho que entrar com o número fica vinculado; o antigo recebe "desconectado pelo professor".
+- O CSV da chamada sai em UTF-8 com BOM e separador `;` (abre direto no Excel em português). Células que começam com `= + - @` são neutralizadas contra fórmulas.
+- Os eventos de presença ficam fora da auditoria geral da prova, para não poluí-la, e são apagados junto quando a prova é reiniciada pela limpeza.
+
+## Sprint 4 — Experiência do aluno (17/11/2026)
+
+- Já existiam: fila local de respostas gravada a cada alteração (localStorage), retomada ao reabrir, grade numerada, bandeirinha e cronômetro pelo relógio do servidor.
+- Acrescentado:
+  - espera de ~1 s antes de enviar textos e números;
+  - renovação automática do acesso vencido no mesmo aparelho;
+  - avisos aos 5 e a 1 minuto (faixa vermelha, som curto e vibração), uma vez cada;
+  - tela de revisão com os números das questões em branco e marcadas, tocáveis;
+  - botão "Pedir ajuda", que aparece no painel em segundos e mostra ao aluno quando o professor atendeu.

@@ -224,12 +224,8 @@ async function start() {
   }
   if (!listening) throw new Error('Não foi possível escolher uma porta para o Atlas.');
   const port = atlas.server.address().port;
-  const studentUrls = () => {
-    return Object.values(os.networkInterfaces()).flat()
-      .filter((net) => net?.family === 'IPv4' && !net.internal)
-      .map((net) => net.address)
-      .map((ip) => `http://${ip}:${port}/prova`);
-  };
+  // Endereços para os alunos conforme o modo de segurança (Configurações › Segurança).
+  const studentUrls = () => atlas.studentUrls(port).map((url) => `${url}/prova`);
   window = new BrowserWindow({
     width: 1200, height: 800, minWidth: 820, minHeight: 600,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f5f5f7',

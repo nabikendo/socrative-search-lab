@@ -63,11 +63,14 @@
             <div class="caption" style="color: var(--text-3)">O professor é avisado se você sair desta página durante a prova.</div>
             <div class="progress" aria-hidden="true"><div id="progress-bar"></div></div>
           </div>
-          <span id="hud-time" class="badge" hidden></span>
+          <span id="hud-time" class="badge" role="timer" aria-live="off" hidden></span>
+          <button id="help-button" class="btn secondary sm" type="button" aria-pressed="false">✋ Pedir ajuda</button>
           <button id="doc-open" class="btn secondary sm" type="button" hidden>Ver documento</button>
         </div>
       </div>
       <div id="banner" class="notice warn banner" role="alert" hidden></div>
+      <div id="time-alert" class="notice danger banner time-alert" role="alert" hidden></div>
+      <div id="help-status" class="notice banner" role="status" hidden></div>
       <main class="exam-layout">
         <div class="atlas-student-main">
           <section id="q-card" class="card q-card" aria-live="polite"></section>
@@ -132,6 +135,7 @@
       <div class="stack-s">
         <h2 class="headline">Enviar a prova agora?</h2>
         <p id="submit-summary" class="sub" style="color: var(--text-2)"></p>
+        <div id="submit-review" class="review-lists"></div>
         <p id="submit-error" class="error" role="alert"></p>
         <div class="row" style="justify-content: flex-end; margin-top: 8px">
           <button id="submit-cancel" class="btn secondary" type="button">Voltar</button>

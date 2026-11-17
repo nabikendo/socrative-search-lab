@@ -1,5 +1,6 @@
 import { api, ApiError } from './lib/api.js';
 import { answerFailure } from '../shared/answer-sync.js';
+import { timeWarning, secondsLeft, reviewSummary, newDeviceId } from '../shared/student-ui.js';
 import { $, h, clear, plural, toast } from './lib/dom.js';
 import { orderForStudent } from '../shared/shuffle.js';
 import { initializeThemeButton, getAppearance, setAppearance } from './lib/theme.js';
@@ -36,6 +37,31 @@ const writeJson = (key, value) => { try { localStorage.setItem(key, JSON.stringi
 // ---------- 1. entrada
 let joinTimer;
 let reviewCredentials;
+// Identificador deste aparelho: o número do aluno fica vinculado a ele (troca só com liberação do professor).
+const DEVICE_KEY = 'atlas.device';
+let memoryDeviceId = null;
+function deviceId() {
+  const saved = readJson(DEVICE_KEY);
+  if (typeof saved === 'string') return saved;
+  memoryDeviceId ||= newDeviceId();
+  writeJson(DEVICE_KEY, memoryDeviceId);
+  return memoryDeviceId;
+}
+// Acesso vencido por inatividade (ex.: tela apagada): o mesmo aparelho renova sozinho e continua de onde parou.
+let renewing = null;
+function renewSession() {
+  renewing ||= (async () => {
+    const saved = readJson(SESSION_KEY);
+    if (!saved?.code || !saved?.number) return false;
+    try {
+      const data = await api('/api/session/start', { method: 'POST', body: { code: saved.code, number: saved.number, token: state.session?.token ?? saved.token, deviceId: deviceId() } });
+      state.session = data.session;
+      writeJson(SESSION_KEY, { ...saved, sessionId: data.session.id, token: data.session.token });
+      return true;
+    } catch { return false; }
+  })().finally(() => { setTimeout(() => { renewing = null; }, 0); });
+  return renewing;
+}
 $('#return-to-join').addEventListener('click', showJoin);
 $('#review-button').addEventListener('click', async () => {
   try {
@@ -105,7 +131,7 @@ $('#confirm-yes').addEventListener('click', async () => {
 });
 
 async function startSession(code, number, token) {
-  const data = await api('/api/session/start', { method: 'POST', body: { code, number, token } });
+  const data = await api('/api/session/start', { method: 'POST', body: { code, number, token, deviceId: deviceId() } });
   beginSession(data, code, number);
 }
 
@@ -201,9 +227,9 @@ function renderQuestion() {
         h('span',{class:'letter'},letter(i)),h('span',{},option))));
   } else {
     let timer;
-    control = q.type==='numeric' ? h('input', { type:'number',step:'any',name:q.id,placeholder:'Digite o valor',value:currentAnswer(q.id),disabled:state.closed||state.paused,'aria-labelledby':'q-text',oninput:(event)=>{clearTimeout(timer);const value=event.target.value;setAnswer(q.id,value,true);markSaving();timer=setTimeout(()=>saveTextAnswer(q.id,value),500);},onblur:(event)=>{clearTimeout(timer);saveTextAnswer(q.id,event.target.value);} }) : h('textarea', {
+    control = q.type==='numeric' ? h('input', { type:'number',step:'any',name:q.id,placeholder:'Digite o valor',value:currentAnswer(q.id),disabled:state.closed||state.paused,'aria-labelledby':'q-text',oninput:(event)=>{clearTimeout(timer);const value=event.target.value;setAnswer(q.id,value,true);markSaving();timer=setTimeout(()=>saveTextAnswer(q.id,value),1000);},onblur:(event)=>{clearTimeout(timer);saveTextAnswer(q.id,event.target.value);} }) : h('textarea', {
       name: q.id, rows: 6, placeholder: 'Digite sua resposta', value: currentAnswer(q.id), disabled: state.closed || state.paused, 'aria-labelledby': 'q-text',
-      oninput: (event) => { clearTimeout(timer); const value = event.target.value; setAnswer(q.id, value, true); markSaving(); timer = setTimeout(() => saveTextAnswer(q.id, value), 500); },
+      oninput: (event) => { clearTimeout(timer); const value = event.target.value; setAnswer(q.id, value, true); markSaving(); timer = setTimeout(() => saveTextAnswer(q.id, value), 1000); },
       onblur: (event) => { clearTimeout(timer); saveTextAnswer(q.id, event.target.value); },
     });
   }
@@ -419,6 +445,7 @@ async function flush() {
         writeJson(queueKey(state.session.id), state.pending);
       } catch (error) {
         const failure = answerFailure(error);
+        if (failure.action === 'renew' && await renewSession()) continue;
         const count = Object.keys(state.pending).length;
         if (failure.action === 'locked') {
           lockExam(failure.message);
@@ -447,6 +474,7 @@ async function beat() {
   try {
     const result = await api('/api/session/heartbeat', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token } });
     setClock(result);
+    syncHelp(result.help);
     if (result.submitted) finish(result.receipt);
     else if (result.examPaused || result.studentPaused) {
       state.paused=true;
@@ -459,6 +487,7 @@ async function beat() {
     if (Object.keys(state.pending).length && !state.blockedSync) flush();
     flushAway();
   } catch (error) {
+    if (error?.code === 'session_expired' && await renewSession()) return;
     // 401 = o professor desconectou este aparelho (ou reiniciou a prova): orienta o aluno em vez de ficar em silêncio.
     if (error?.status === 401) {
       clearInterval(state.heartbeat);
@@ -515,15 +544,39 @@ window.addEventListener('blur', () => { if (!document.hidden) leavePage('blur');
 window.addEventListener('focus', () => { if (!document.hidden) returnToPage(); });
 
 // ---------- tempo restante (relógio do servidor, para não depender da hora do Chromebook)
+const warned = new Set();
 function updateClock() {
   const badge = $('#hud-time');
   if (!state.endsAt || state.closed) { badge.hidden = true; return; }
-  const left = Math.max(0, Math.floor((state.endsAt - (Date.now() + state.clockOffset)) / 1000));
+  const left = secondsLeft(state.endsAt, state.clockOffset);
+  const warning = timeWarning(left, warned);
+  if (warning) alertTime(warning);
   const hours = Math.floor(left / 3600);
   const text = `${hours ? hours + ':' : ''}${String(Math.floor((left % 3600) / 60)).padStart(hours ? 2 : 1, '0')}:${String(left % 60).padStart(2, '0')}`;
   badge.textContent = left ? `Tempo restante ${text}` : 'Tempo encerrado';
   badge.className = `badge${left && left <= 300 ? ' warn' : ''}`;
   badge.hidden = false;
+}
+// Aviso de tempo: faixa vermelha, som curto e vibração (quando o aparelho permite).
+let audio;
+document.addEventListener('pointerdown', () => { try { audio ||= new AudioContext(); audio.resume(); } catch { /* sem áudio */ } }, { once: true });
+function alertTime(warning) {
+  const el = $('#time-alert');
+  el.textContent = warning.message;
+  el.hidden = false;
+  setTimeout(() => { el.hidden = true; }, warning.id === '1min' ? 20_000 : 12_000);
+  try { navigator.vibrate?.(warning.id === '1min' ? [300, 120, 300, 120, 300] : [250, 120, 250]); } catch { /* sem vibração */ }
+  try {
+    if (!audio) return;
+    const beeps = warning.id === '1min' ? 3 : 2;
+    for (let i = 0; i < beeps; i++) {
+      const tone = audio.createOscillator(); const gain = audio.createGain();
+      tone.frequency.value = 880; gain.gain.value = 0.08;
+      tone.connect(gain).connect(audio.destination);
+      const start = audio.currentTime + i * 0.35;
+      tone.start(start); tone.stop(start + 0.2);
+    }
+  } catch { /* sem áudio */ }
 }
 function setClock(result) {
   if (typeof result.serverNow === 'number') state.clockOffset = result.serverNow - Date.now();
@@ -544,14 +597,14 @@ function lockExam(message) {
 // ---------- 4. envio
 const dialog = $('#submit-dialog');
 function openSubmit() {
-  const { total, answered } = updateProgress();
-  const blanks = state.questions.map((q, i) => (hasAnswer(currentAnswer(q.id)) ? null : i + 1)).filter(Boolean);
-  const marked = state.questions.map((q, i) => (state.flags.has(q.id) ? i + 1 : null)).filter(Boolean);
-  const parts = [];
-  if (blanks.length) parts.push(`Você respondeu ${answered} de ${total}. Em branco: ${blanks.join(', ')}.`);
-  if (marked.length) parts.push(`Marcadas para revisar: ${marked.join(', ')}.`);
-  parts.push('Depois do envio, não será possível alterar as respostas.');
-  $('#submit-summary').textContent = parts.join(' ');
+  updateProgress();
+  const review = reviewSummary(state.questions, currentAnswer, state.flags);
+  const jump = (item) => h('button', { type: 'button', class: 'review-chip', 'aria-label': `Ir para a questão ${item.number}`, onclick: () => { dialog.close(); go(item.number - 1); } }, String(item.number));
+  const list = (title, items, cls) => items.length ? h('div', { class: `review-list ${cls}` }, h('strong', {}, `${title} (${items.length})`), h('div', { class: 'review-chips' }, items.map(jump))) : null;
+  clear($('#submit-review'),
+    list('Em branco', review.blanks, 'blank'),
+    list('Marcadas para revisar', review.flagged, 'flagged'));
+  $('#submit-summary').textContent = `Você respondeu ${review.answered} de ${review.total}.` + (review.blanks.length || review.flagged.length ? ' Toque num número para revisar.' : ' Todas respondidas.') + ' Depois do envio, não será possível alterar as respostas.';
   $('#submit-error').textContent = '';
   dialog.showModal();
 }
@@ -641,6 +694,13 @@ function finish(receipt) {
     }
     catch (error) {
       if (error.code === 'already_submitted') { finish(); return; }
+      if (error.code === 'session_expired') {
+        try {
+          const data = await api('/api/session/start', { method: 'POST', body: { code: saved.code, number: saved.number, token: saved.token, deviceId: deviceId() } });
+          beginSession(data, saved.code, saved.number);
+          return;
+        } catch { /* segue o fluxo normal abaixo */ }
+      }
       if (error.code === 'network') { show('join'); $('#join-status').textContent = 'Sem conexão com o servidor. Verifique o Wi‑Fi da sala.'; setTimeout(boot, 3000); return; }
       const unsent = Object.keys(readJson(queueKey(saved.sessionId)) || {}).length;
       if (unsent) {
@@ -662,3 +722,30 @@ function finish(receipt) {
   showJoin();
 })();
 
+// ---------- pedir ajuda ao professor (aparece no painel em segundos, sem levantar a mão)
+let helpOn = false;
+function syncHelp(on) {
+  if (typeof on !== 'boolean') return;
+  const answered = helpOn && !on;
+  helpOn = on;
+  const button = $('#help-button');
+  button.setAttribute('aria-pressed', String(on));
+  button.textContent = on ? '✋ Ajuda pedida (cancelar)' : '✋ Pedir ajuda';
+  const status = $('#help-status');
+  if (on) { status.textContent = 'Seu pedido de ajuda foi enviado. Aguarde o professor.'; status.hidden = false; }
+  else if (answered) { status.textContent = 'O professor viu seu pedido.'; status.hidden = false; setTimeout(() => { if (!helpOn) status.hidden = true; }, 8000); }
+  else status.hidden = true;
+}
+$('#help-button').addEventListener('click', async () => {
+  if (!state.session || rehearsalId) return;
+  const button = $('#help-button');
+  button.disabled = true;
+  try { syncHelp((await api('/api/session/help', { method: 'POST', body: { sessionId: state.session.id, token: state.session.token, on: !helpOn } })).help); }
+  catch (error) { toast(error.message); }
+  finally { button.disabled = false; }
+});
+// Ao fechar a página, avisa o servidor para o painel mostrar "Saiu" na hora (sem esperar 30 s).
+window.addEventListener('pagehide', (event) => {
+  if (event.persisted || !state.session || state.closed || rehearsalId) return;
+  try { navigator.sendBeacon('/api/session/leave', new Blob([JSON.stringify({ sessionId: state.session.id, token: state.session.token })], { type: 'application/json' })); } catch { /* sem beacon */ }
+});

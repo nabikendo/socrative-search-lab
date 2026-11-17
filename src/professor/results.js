@@ -2,19 +2,23 @@ import { api } from '../lib/api.js';
 import { h, clear, toast, plural, formatScore } from '../lib/dom.js';
 import { finalAnswersForItem } from '../../shared/assessment-results.js';
 import { skillLabel } from '../../shared/skills.js';
+import { createPresencePanel } from './presence.js';
 
 let root;
 let timer;
+const presence = createPresencePanel(); // componente com estado próprio (SSE, busca), reaproveitado entre redesenhos
 const state = { exams: [], examId: null, data: null, sig: '', open: new Set(), alertsEnabled:false, submittedCounts:new Map(), batchScores:new Map() };
 
 export function mount(el) { root = el; }
 export async function activate() {
   state.exams = (await api('/api/exams')).exams;
   state.examId = state.exams.some((e) => e.id === state.examId) ? state.examId : (state.exams.find((e) => e.status === 'open') || state.exams[0])?.id ?? null;
+  presence.setExam(state.examId);
+  presence.resume();
   await refresh(true);
   timer = setInterval(() => refresh(false), 4000);
 }
-export function deactivate() { clearInterval(timer); }
+export function deactivate() { clearInterval(timer); presence.stop(); }
 
 async function refresh(force) {
   if (!state.examId) { state.data = null; render(); return; }
@@ -47,10 +51,10 @@ function render() {
   const header = h('div', { class: 'atlas-results-heading' },
     h('div', { class: 'row' }, h('h1', { class: 'title' }, 'Resultados'), h('span', { class: 'badge ok' }, 'Ao vivo')),
     state.exams.length > 0 && h('select', { 'aria-label': 'Escolher prova', style: 'width:auto;max-width:320px', onchange: (event) => {
-      state.examId = event.target.value; state.open.clear(); state.sig = ''; refresh(true);
+      state.examId = event.target.value; state.open.clear(); state.sig = ''; presence.setExam(state.examId); refresh(true);
     } }, state.exams.map((exam) => h('option', { value: exam.id, selected: exam.id === state.examId }, exam.title))));
   if (!d) {
-    clear(root, h('div', { class: 'stack' }, header, h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')));
+    clear(root, h('div', { class: 'stack' }, header, state.examId ? presence.el : null, h('p', { class: 'lead' }, 'Crie e abra uma prova para acompanhar as respostas aqui.')));
     return;
   }
   const left = h('div', { class: 'atlas-results-column' },
@@ -67,7 +71,7 @@ function render() {
     pendingStudents(d),
     schoolExport(d.exam));
   clear(root, h('div', { class: 'stack' },
-    header, summary(d), awayNotice(d),
+    header, presence.el, summary(d), awayNotice(d),
     !d.exam.questions.length && h('div', { class: 'notice' }, 'Avaliação somente em PDF: o Atlas acompanha quem entregou, mas não calcula as notas desta prova.'),
     stats(d),
     h('div', { class: 'atlas-results-grid' }, left, right)));

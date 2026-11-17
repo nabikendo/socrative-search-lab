@@ -170,11 +170,18 @@ Faça um teste com Internet desligada e alguns alunos fictícios: abra a prova e
 - **Backup e restauração:** **Baixar backup agora** gera um único arquivo `.atlas` com turma, provas, respostas e anexos. **Restaurar de um backup…** devolve tudo a esse estado; antes da troca o Atlas guarda uma cópia do estado atual em `data/backups`.
 - **Dúvidas frequentes.**
 
+### Presença em tempo real (aba Resultados)
+
+No topo da aba Resultados, o painel **Presença** mostra **“X de Y alunos entraram”** e separa a turma em **Entraram** (verde: em prova ou enviou; amarelo: saiu) e **Não entraram** (vermelho). Atualiza sozinho em segundos. Tem busca por nome ou número, **Exportar chamada** (CSV que abre no Excel), **Liberar dispositivo** para troca de aparelho sem perder respostas, alertas de pedido de ajuda e de aluno tentando entrar em dois aparelhos, e o registro com IP, entrada, saída e trocas.
+
+Na prova, o aluno tem o botão **✋ Pedir ajuda**, avisos aos 5 e a 1 minuto do fim e, antes de enviar, a lista das questões em branco e marcadas para revisar.
+
 ### Configurações (ícone de engrenagem)
 
 - **Geral:** tema, tamanho da fonte e padrões de prova.
 - **Perfis** (aplicativo para computador): cada professor tem seu perfil, com turmas, alunos, avaliações, resultados, preferências e IA separados. Dá para criar, renomear, trocar o PIN, abrir e excluir perfis. Ao excluir, o Atlas oferece salvar uma cópia `.atlas` em `Documentos\Atlas\PerfisExcluidos`.
 - **Inteligência artificial:** escolha qual IA elabora e qual analisa as questões (aba Descritores). Ollama e LM Studio rodam no computador; ChatGPT, Claude, Gemini, DeepSeek, Groq, OpenRouter, Mistral, xAI ou qualquer serviço compatível com OpenAI funcionam com a sua chave de API. Use **Testar conexão** antes de salvar. A chave fica só neste computador (criptografada no aplicativo para Windows) e nunca é mostrada de novo. Com IA na nuvem, o enunciado, o descritor e o texto-base são enviados ao provedor; dados de alunos nunca são.
+- **Segurança:** modo da rede (`http` com proteções, `auto` ou `https`), validade do acesso do aluno e o diagnóstico `/diag/https` para testar os Chromebooks antes de ligar o HTTPS.
 - **Dados e limpeza:** backup, e limpeza com alcance individual (um aluno ou participante), por prova, por turma ou do perfil inteiro: avaliações em elaboração, reiniciar prova em andamento, desconectar participantes, apagar resultados, redefinir turmas e alunos, limpar cache, restaurar configurações, remover chaves de IA e restaurar o perfil de fábrica. Antes de apagar, o Atlas mostra o que será afetado, pede para digitar **APAGAR** e guarda uma cópia de segurança (as 10 mais recentes).
 - **Modo de teste:** cria uma turma, provas e resultados fictícios num banco separado. Uma faixa amarela avisa que o modo está ativo; os dados reais não são lidos nem alterados, e backup, restauração e cópias automáticas ficam bloqueados enquanto ele estiver ligado. Não é possível ativá-lo com uma prova real aberta.
 
@@ -237,7 +244,9 @@ As questões ficam travadas. Use **Duplicar** para criar uma cópia e alterar.
 ## 7. Segurança e privacidade
 
 - O painel do professor exige **PIN** (sessão de 12 h, com limite de tentativas).
-- O aluno precisa do **código da prova**. Um número já em uso em outro aparelho é bloqueado; ao recarregar a página, o mesmo aparelho continua de onde parou.
+- O aluno precisa do **código da prova**. O número fica **vinculado ao primeiro aparelho** que entrar; outro aparelho só entra depois que o professor toca em **Liberar dispositivo** (aba Resultados › Presença). Ao recarregar a página, o mesmo aparelho continua de onde parou.
+- **Rede controlada é obrigatória** (hotspot do professor ou Wi‑Fi só da turma, com senha). Em Configurações › Segurança você escolhe o modo `http` (padrão), `auto` ou `https`, e usa o diagnóstico `/diag/https` para testar os Chromebooks. Detalhes e riscos em [docs/AUDIT.md](docs/AUDIT.md).
+- O acesso do aluno vence após **10 minutos sem sinal** (ajustável); o mesmo aparelho renova sozinho.
 - Cada aluno envia a prova **uma única vez**; só o professor reabre.
 - Textos dos alunos e documentos DOCX são exibidos com proteção contra código malicioso, e os arquivos enviados são validados pelo conteúdo.
 - Nenhuma fonte, script ou imagem vem da Internet.
