@@ -90,6 +90,8 @@ async function showSection(id) {
     const active = button.dataset.section === current;
     button.setAttribute('aria-current', active ? 'page' : 'false');
     button.classList.toggle('active', active);
+    // No celular a navegação vira uma faixa rolável: mantém a seção escolhida à vista.
+    if (active) button.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
   const target = h('div', { class: 'stack-s settings-section', dataset: { section: current } }, h('p', { class: 'caption' }, 'Carregando…'));
   clear(panel, target);

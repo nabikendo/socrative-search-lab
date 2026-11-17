@@ -68,7 +68,7 @@ test('modo de teste: cria dados fictícios isolados e os dados reais ficam intac
 
   const demoExam = exams.find((e) => e.title.includes('Rascunho'));
   assert.equal((await call(`/api/exams/${demoExam.id}`, { method: 'DELETE' })).status, 200);
-  await call('/api/classes', { method: 'POST', body: { name: 'Turma criada durante o teste', rows: [{ number: '1', name: 'TESTE' }] } });
+  assert.equal((await call('/api/classes', { method: 'POST', body: { name: 'Turma criada durante o teste', roster: [{ number: '1', name: 'TESTE' }] } })).status, 200);
   assert.deepEqual(real(), before, 'edições feitas no teste não chegam ao banco real');
 
   for (const [method, url] of [['GET', '/api/backup'], ['POST', '/api/restore'], ['POST', '/api/restore/verify'], ['POST', '/api/restore/selective']]) {

@@ -170,6 +170,14 @@ Faça um teste com Internet desligada e alguns alunos fictícios: abra a prova e
 - **Backup e restauração:** **Baixar backup agora** gera um único arquivo `.atlas` com turma, provas, respostas e anexos. **Restaurar de um backup…** devolve tudo a esse estado; antes da troca o Atlas guarda uma cópia do estado atual em `data/backups`.
 - **Dúvidas frequentes.**
 
+### Configurações (ícone de engrenagem)
+
+- **Geral:** tema, tamanho da fonte e padrões de prova.
+- **Perfis** (aplicativo para computador): cada professor tem seu perfil, com turmas, alunos, avaliações, resultados, preferências e IA separados. Dá para criar, renomear, trocar o PIN, abrir e excluir perfis. Ao excluir, o Atlas oferece salvar uma cópia `.atlas` em `Documentos\Atlas\PerfisExcluidos`.
+- **Inteligência artificial:** escolha qual IA elabora e qual analisa as questões (aba Descritores). Ollama e LM Studio rodam no computador; ChatGPT, Claude, Gemini, DeepSeek, Groq, OpenRouter, Mistral, xAI ou qualquer serviço compatível com OpenAI funcionam com a sua chave de API. Use **Testar conexão** antes de salvar. A chave fica só neste computador (criptografada no aplicativo para Windows) e nunca é mostrada de novo. Com IA na nuvem, o enunciado, o descritor e o texto-base são enviados ao provedor; dados de alunos nunca são.
+- **Dados e limpeza:** backup, e limpeza com alcance individual (um aluno ou participante), por prova, por turma ou do perfil inteiro: avaliações em elaboração, reiniciar prova em andamento, desconectar participantes, apagar resultados, redefinir turmas e alunos, limpar cache, restaurar configurações, remover chaves de IA e restaurar o perfil de fábrica. Antes de apagar, o Atlas mostra o que será afetado, pede para digitar **APAGAR** e guarda uma cópia de segurança (as 10 mais recentes).
+- **Modo de teste:** cria uma turma, provas e resultados fictícios num banco separado. Uma faixa amarela avisa que o modo está ativo; os dados reais não são lidos nem alterados, e backup, restauração e cópias automáticas ficam bloqueados enquanto ele estiver ligado. Não é possível ativá-lo com uma prova real aberta.
+
 ## 4. Como as notas funcionam
 
 | Tipo de questão | Nota |

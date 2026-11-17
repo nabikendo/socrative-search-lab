@@ -469,8 +469,9 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   if (desktopProfiles) {
     // Erros do gerenciador de perfis trazem code e status HTTP próprios; erros do sistema seguem adiante.
     const profileHttp = (error) => (error && typeof error.code === 'string' && Number.isInteger(error.status) ? new HttpError(error.status, error.code, error.message) : error);
+    // Na porta 80 o navegador envia "Host: 127.0.0.1" sem porta; os dois formatos são aceitos.
     const localOnly = (req) => {
-      if (req.socket.remoteAddress !== '127.0.0.1' || !/^127\.0\.0\.1:\d+$/.test(req.headers.host || '')) {
+      if (req.socket.remoteAddress !== '127.0.0.1' || !/^127\.0\.0\.1(:\d+)?$/.test(req.headers.host || '')) {
         throw new HttpError(403, 'local_only', 'Abra o aplicativo Atlas neste computador.');
       }
     };

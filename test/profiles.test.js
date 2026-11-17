@@ -162,3 +162,22 @@ test('rotas de perfil: criar, editar, trocar PIN e excluir exigem PIN do profess
     assert.equal((await call(`/api/desktop/profiles/${MAIN_PROFILE}`, 'DELETE', { confirm: 'Principal' })).status, 400);
   } finally { await app.close(); }
 });
+
+test('rotas de perfil funcionam com "Host: 127.0.0.1" sem porta (aplicativo na porta 80) e recusam outro host', async () => {
+  const env = setup(); const base = env.make(MAIN_PROFILE);
+  const app = createApp({ dataDir: tmp(), pin: '123456', desktopProfiles: { list: () => base.list(), create: () => {}, rename: () => {}, changePin: () => {}, remove: () => {}, switch: () => true } });
+  await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
+  const port = app.server.address().port;
+  const http = await import('node:http');
+  const get = (headers) => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path: '/api/desktop/profiles', headers }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }).on('error', reject);
+  });
+  try {
+    const login = await fetch(`http://127.0.0.1:${port}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: '123456' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    assert.equal(await get({ cookie, host: '127.0.0.1' }), 200);
+    assert.equal(await get({ cookie, host: `127.0.0.1:${port}` }), 200);
+    assert.equal(await get({ cookie, host: '192.168.0.10' }), 403);
+    assert.equal(await get({ cookie, host: '127.0.0.1.evil.com' }), 403);
+  } finally { await app.close(); }
+});
