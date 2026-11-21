@@ -1,11 +1,15 @@
 import { selectSection } from './settings.js';
 import { api } from '../lib/api.js';
 import { h, clear, toast } from '../lib/dom.js';
-import { SAEB_LEVELS, SAEB_SKILLS, findSkill, MATRIZ_SOURCES } from '../../shared/skills.js';
+import { SAEB_LEVELS, SAEB_SKILLS, ENEM_LEVELS, ENEM_SKILLS, MATRIX_LEVELS, MATRIX_SKILLS, findSkill, enemArea, MATRIZ_SOURCES } from '../../shared/skills.js';
+import { ENEM_AXES, ENEM_ESSAY, ENEM_SOURCE, essayCriteria, ESSAY_PROMPT } from '../../shared/enem.js';
 import { generateDescriptorQuestion, SUPPORTED_GENERATORS } from '../../shared/descriptor-generator.js';
 
 let root, bank = [], exams = [];
-const state = { level: 'SAEB3', skill: 'SAEB3-D16', search: '', draft: null, report: null, working: false, error: '' };
+const ESSAY = 'ENEMRED'; // "etapa" especial: competências da redação do ENEM
+const savedLevel = (() => { try { return localStorage.getItem('atlas.descritores.nivel'); } catch { return null; } })();
+const startLevel = MATRIX_LEVELS.some((l) => l.id === savedLevel) || savedLevel === ESSAY ? savedLevel : 'ENEMCN';
+const state = { level: startLevel, skill: MATRIX_SKILLS.find((s) => s.level === startLevel)?.id || '', search: '', draft: null, report: null, working: false, error: '', objeto: '' };
 export function mount(el) { root = el; }
 export async function activate() {
   try {
@@ -16,9 +20,10 @@ export async function activate() {
 }
 const field = (title, input) => h('label', { class: 'field' }, h('span', {}, title), input);
 const normalize = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const skillRows = () => SAEB_SKILLS.filter(s => s.level === state.level && normalize(s.code + ' ' + s.topic + ' ' + s.description).includes(normalize(state.search)));
-function chooseLevel(id) { state.level=id; state.skill=SAEB_SKILLS.find(s=>s.level===id)?.id||'';state.draft=null;state.report=null;render(); }
+const skillRows = () => MATRIX_SKILLS.filter(s => s.level === state.level && normalize(s.code + ' ' + s.topic + ' ' + (s.competenciaText || '') + ' ' + s.description).includes(normalize(state.search)));
+function chooseLevel(id) { state.level=id; state.skill=MATRIX_SKILLS.find(s=>s.level===id)?.id||'';state.draft=null;state.report=null;state.objeto='';try{localStorage.setItem('atlas.descritores.nivel',id);}catch{/* sem armazenamento */}render(); }
 function chooseSkill(id) { state.skill=id;state.draft=null;state.report=null;state.error='';render(); }
+function chooseObjeto(text) { state.objeto = state.objeto === text ? '' : text; render(); }
 function goToExam(question) {
   sessionStorage.setItem('atlas.bank.pending', JSON.stringify(question));
   window.dispatchEvent(new CustomEvent('atlas:goto', { detail:'prova' }));
@@ -68,15 +73,18 @@ async function aiEditor() {
     try{
       const result=await api('/api/ai/descriptor-question',{method:'POST',body:{
         skillId:skill.id,
-        context:String(values.get('context')||'')}});
+        context:String(values.get('context')||''),
+        objeto:String(values.get('objeto')||'')}});
       if(state.skill!==skill.id){toast('Você mudou de descritor; a questão gerada não foi inserida.');return;}
       state.draft=result.question;state.draftByAi=true;state.error='';dialog.close();render();
       toast('Rascunho gerado. Confira todas as alternativas e o gabarito antes de salvar.');
     }catch(error){problem.textContent=error.message;problem.hidden=false;}
     finally{clearInterval(timer);button.disabled=false;button.textContent='Gerar rascunho com IA';}
   }},
-    h('p',{class:'notice'},'Descritor '+skill.code+': '+skill.description),
-    field('Texto-base e orientações adicionais (obrigatório para Língua Portuguesa)',h('textarea',{
+    h('p',{class:'notice'},(skill.matrix==='ENEM'?'ENEM · '+skill.subject+' · C'+skill.competencia+' · ':'Descritor ')+skill.code+': '+skill.description),
+    skill.matrix==='ENEM'&&field('Objeto de conhecimento (opcional)',objetoSelect(skill)),
+    skill.matrix==='ENEM'&&h('p',{class:'caption'},'A IA gera uma questão no estilo do ENEM, com situação-problema e 5 alternativas (A–E).'),
+    field(skill.matrix==='ENEM'?'Texto-base e orientações adicionais (recomendado em Linguagens e Humanas)':'Texto-base e orientações adicionais (obrigatório para Língua Portuguesa)',h('textarea',{
       name:'context',rows:5,maxLength:8000,
       placeholder:skill.subject==='Língua Portuguesa'?'Cole aqui o texto que o aluno deverá interpretar.':'Opcional: contexto escolar, situações-problema ou conteúdos específicos.'})),
     h('p',{class:'caption'},aiNote(target)+' A validação estrutural não garante resposta correta; revise antes de aplicar.'),
@@ -87,6 +95,13 @@ async function aiEditor() {
   const dialog=h('dialog',{class:'atlas-descriptor-editor','aria-label':'Gerar com IA'},
     h('h2',{class:'headline'},'Criação assistida por IA'),form);
   document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+}
+function objetoSelect(skill) {
+  const area = enemArea(skill.level);
+  return h('select', { name: 'objeto', value: state.objeto },
+    h('option', { value: '' }, 'Qualquer objeto da área'),
+    area.objetos.map((topic) => h('optgroup', { label: (topic.disciplina ? topic.disciplina + ' · ' : '') + topic.tema },
+      topic.itens.map((item) => h('option', { value: item }, item)))));
 }
 function manualEditor() {
   const skill=findSkill(state.skill);
@@ -196,37 +211,45 @@ function questionCard(q,draft=false){
 function render() {
   if(!root)return;
   const skill=findSkill(state.skill);
-  const stage=SAEB_LEVELS.find(s=>s.id===state.level);
+  const stage=MATRIX_LEVELS.find(s=>s.id===state.level);
+  const enem=state.level===ESSAY||stage?.matrix==='ENEM';
   const matches=bank.filter(q=>q.skill===state.skill);
   const list=skillRows();
   const report=state.report;
   clear(root,h('div',{class:'stack atlas-descriptor-page'},
     h('div',{class:'row between'},
-      h('div',{},h('h1',{class:'title'},'Descritores e habilidades'),h('p',{class:'sub'},'Pesquisar, criar e analisar questões por matriz e etapa do SAEB.')),
-      h('span',{class:'badge'},SAEB_SKILLS.length+' descritores catalogados')),
-    h('div',{class:'notice'},'Matrizes tradicionais Inep. Um mesmo código Dn pode ter significados diferentes por disciplina e etapa. As matrizes BNCC são outro referencial.'),
+      h('div',{},h('h1',{class:'title'},'Descritores e habilidades'),h('p',{class:'sub'},'Pesquisar, criar e analisar questões pela Matriz de Referência do ENEM e pelas matrizes do SAEB.')),
+      h('span',{class:'badge'},ENEM_SKILLS.length+' habilidades ENEM · '+SAEB_SKILLS.length+' descritores SAEB')),
+    h('div',{class:'notice'},enem?'Matriz de Referência do ENEM ('+ENEM_SOURCE.publisher+', '+ENEM_SOURCE.year+'): 4 áreas, 30 competências de área e 120 habilidades (H1–H30 em cada área). O mesmo código Hn tem significados diferentes em cada área.':'Matrizes tradicionais Inep. Um mesmo código Dn pode ter significados diferentes por disciplina e etapa. As matrizes BNCC são outro referencial.'),
     h('div',{class:'atlas-descriptor-layout'},
       h('aside',{class:'card stack-s atlas-descriptor-sidebar'},
-        field('Disciplina e etapa',h('select',{value:state.level,onchange:e=>chooseLevel(e.target.value)},
-          SAEB_LEVELS.map(s=>h('option',{value:s.id,selected:stage?.id===s.id},s.label)))),
-        field('Pesquisar descritor',h('input',{type:'search',value:state.search,placeholder:'D16, porcentagem, leitura…',
+        field('Matriz, área ou etapa',h('select',{value:state.level,onchange:e=>chooseLevel(e.target.value)},
+          h('optgroup',{label:'ENEM'},ENEM_LEVELS.map(s=>h('option',{value:s.id},s.subject)),h('option',{value:ESSAY},'Redação (competências I a V)')),
+          h('optgroup',{label:'SAEB'},SAEB_LEVELS.map(s=>h('option',{value:s.id},s.label))))),
+        state.level!==ESSAY&&
+        field(enem?'Pesquisar habilidade':'Pesquisar descritor',h('input',{type:'search',value:state.search,placeholder:enem?'H17, gráfico, energia…':'D16, porcentagem, leitura…',
           oninput:e=>{state.search=e.target.value;render();let el=root.querySelector('.atlas-descriptor-sidebar input');el?.focus();}})),
-        h('p',{class:'caption'},list.length+' descritores encontrados'),
-        h('div',{class:'atlas-descriptor-list'},list.map(s=>h('button',{type:'button',class:'atlas-descriptor-select',
-          'aria-pressed':String(s.id===state.skill),onclick:()=>chooseSkill(s.id)},
-          h('strong',{},s.code),h('span',{},s.description)))),
-        h('a',{href:MATRIZ_SOURCES[stage?.source||'MAT'],target:'_blank',rel:'noopener noreferrer',class:'btn secondary'},'Ver PDF oficial')),
+        state.level!==ESSAY&&h('p',{class:'caption'},list.length+(enem?' habilidades encontradas':' descritores encontrados')),
+        state.level!==ESSAY&&h('div',{class:'atlas-descriptor-list'},list.map((s,i)=>[
+          s.matrix==='ENEM'&&s.competencia!==list[i-1]?.competencia&&h('p',{class:'eyebrow',style:'margin:10px 4px 2px'},'Competência de área '+s.competencia),
+          h('button',{type:'button',class:'atlas-descriptor-select','aria-pressed':String(s.id===state.skill),onclick:()=>chooseSkill(s.id)},
+            h('strong',{},s.code),h('span',{},s.description))])),
+        h('a',{href:enem?ENEM_SOURCE.pdf:MATRIZ_SOURCES[stage?.source||'MAT'],target:'_blank',rel:'noopener noreferrer',class:'btn secondary'},enem?'Abrir a Matriz do ENEM (PDF)':'Ver PDF oficial')),
       h('div',{class:'atlas-descriptor-main stack'},
-        skill&&h('div',{class:'card stack-s'},
-          h('p',{class:'eyebrow'},skill.subject+' · '+skill.stage+' · '+skill.topic),
+        state.level===ESSAY&&essayPanel(),
+        state.level!==ESSAY&&skill&&h('div',{class:'card stack-s'},
+          h('p',{class:'eyebrow'},skill.matrix==='ENEM'?'ENEM · '+skill.subject+' · Competência de área '+skill.competencia:skill.subject+' · '+skill.stage+' · '+skill.topic),
           h('h2',{class:'title-m'},skill.code+' — '+skill.description),
+          skill.matrix==='ENEM'&&h('p',{class:'sub'},'Competência de área '+skill.competencia+': '+skill.competenciaText),
+          skill.matrix==='ENEM'&&state.objeto&&h('p',{class:'notice'},'Objeto de conhecimento escolhido: ',h('strong',{},state.objeto),' (usado em Criar com IA).'),
           h('div',{class:'row'},
             h('button',{class:'btn',disabled:!SUPPORTED_GENERATORS.includes(skill.id),onclick:generate},'Gerar questão offline'),
             h('button',{class:'btn secondary',onclick:manualEditor},'Criar questão orientada'),
             h('button',{class:'btn secondary',onclick:()=>aiEditor().catch(error=>toast(error.message))},'Criar com IA'),
             h('button',{class:'btn secondary',disabled:state.working,onclick:analyze},state.working?'Analisando…':'Analisar resultados')),
-          !SUPPORTED_GENERATORS.includes(skill.id)&&h('p',{class:'caption'},'Não há gerador automático verificado para este descritor. A criação orientada permanece disponível.')),
-        state.error&&h('p',{class:'notice warn',role:'alert'},state.error),
+          !SUPPORTED_GENERATORS.includes(skill.id)&&h('p',{class:'caption'},skill.matrix==='ENEM'?'Para o ENEM, use Criar com IA (estilo ENEM, 5 alternativas) ou Criar questão orientada.':'Não há gerador automático verificado para este descritor. A criação orientada permanece disponível.'),
+          skill.matrix==='ENEM'&&enemReference(skill)),
+        state.level!==ESSAY&&state.error&&h('p',{class:'notice warn',role:'alert'},state.error),
         state.draft&&h('div',{class:'stack-s'},h('h3',{class:'headline'},state.draftByAi?'Rascunho criado pela IA — revise antes de usar':'Questão inédita gerada por regras — revise'),questionCard(state.draft,true)),
         report&&h('div',{class:'card stack-s atlas-descriptor-analysis'},
           h('h3',{class:'headline'},'Análise das avaliações salvas'),
@@ -244,3 +267,29 @@ function render() {
         h('p',{class:'caption'},'Banco: '+bank.length+' itens · Avaliações: '+exams.length+'. Busca local e offline, sem acesso a banco público de questões do Inep.')))));
 }
 function metric(title,value){return h('div',{class:'stat'},h('div',{class:'caption'},title),h('div',{class:'stat-n'},String(value)));}
+// Referência da habilidade do ENEM: eixos cognitivos e objetos de conhecimento da área (tocar escolhe o objeto).
+function enemReference(skill) {
+  const area = enemArea(skill.level);
+  const groups = [...new Set(area.objetos.map((topic) => topic.disciplina || ''))];
+  return h('div', { class: 'stack-s' },
+    h('details', {}, h('summary', { class: 'caption', style: 'cursor:pointer' }, 'Eixos cognitivos (comuns a todas as áreas)'),
+      h('ul', { class: 'caption', style: 'margin:8px 0 0;padding-left:18px' }, ENEM_AXES.map((axis) => h('li', {}, h('strong', {}, `${axis.name} (${axis.id}): `), axis.text)))),
+    h('details', { open: !!state.objeto }, h('summary', { class: 'caption', style: 'cursor:pointer' }, `Objetos de conhecimento da área (${area.objetos.reduce((n, t) => n + t.itens.length, 0)}) — toque para usar na criação com IA`),
+      ...groups.map((group) => h('div', { class: 'stack-s', style: 'margin-top:8px' },
+        group && h('p', { class: 'eyebrow' }, group),
+        ...area.objetos.filter((topic) => (topic.disciplina || '') === group).map((topic) => h('div', {},
+          h('strong', { class: 'caption', style: 'display:block;margin:6px 0 4px' }, topic.tema),
+          h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' }, topic.itens.map((item) => h('button', {
+            type: 'button', class: 'chip', 'aria-pressed': String(state.objeto === item), onclick: () => chooseObjeto(item),
+          }, item)))))))));
+}
+// Redação do ENEM: as cinco competências com os níveis de 0 a 200 e atalho para incluir na prova.
+function essayPanel() {
+  return h('div', { class: 'card stack-s' },
+    h('p', { class: 'eyebrow' }, 'ENEM · Prova de redação'),
+    h('h2', { class: 'title-m' }, 'Competências da redação (0 a 200 cada, total 1000)'),
+    h('p', { class: 'sub' }, 'Inclua uma redação na prova e corrija em Resultados escolhendo um nível por competência. O Atlas soma os pontos e converte para o peso da questão.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => goToExam({ type: 'text', text: ESSAY_PROMPT, options: [], weight: 10, topic: 'Redação ENEM', criteria: essayCriteria() }) }, 'Adicionar redação modelo ENEM à prova')),
+    ...ENEM_ESSAY.map((c) => h('details', {}, h('summary', { style: 'cursor:pointer' }, h('strong', {}, `Competência ${c.id}`), ' — ', c.text),
+      h('ul', { class: 'caption', style: 'margin:8px 0 0;padding-left:18px' }, c.levels.map((level) => h('li', {}, h('strong', {}, `${level.score} pontos: `), level.description))))));
+}

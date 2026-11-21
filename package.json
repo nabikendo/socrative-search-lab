@@ -1,6 +1,6 @@
 {
   "name": "atlas-provas",
-  "version": "1.4.0",
+  "version": "1.5.0-beta.1",
   "private": true,
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -61,8 +61,8 @@
       "provider": "github",
       "owner": "nabikendo",
       "repo": "socrative-search-lab",
-      "channel": "latest",
-      "releaseType": "release"
+      "channel": "beta",
+      "releaseType": "prerelease"
     },
     "generateUpdatesFilesForAllChannels": true,
     "asar": true,

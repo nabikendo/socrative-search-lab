@@ -1,9 +1,12 @@
+import { ENEM_AREAS, ENEM_SOURCE } from './enem.js';
+
 // Matrizes tradicionais do SAEB (referenciais fornecidos pelo Inep).
 // A mesma sigla Dn pode representar habilidades diferentes por disciplina/etapa.
 // Fontes: os dois PDFs oficiais em MATRIZ_SOURCES. Não equivale à matriz BNCC.
 export const MATRIZ_SOURCES = {
   LP: 'https://download.inep.gov.br/educacao_basica/prova_brasil_saeb/menu_do_professor/o_que_cai_nas_provas/Matriz_de_Referencia_de_Lingua_Portuguesa.pdf',
   MAT: 'https://download.inep.gov.br/educacao_basica/prova_brasil_saeb/menu_do_professor/o_que_cai_nas_provas/Matriz_de_Referencia_de_Matematica.pdf',
+  ENEM: ENEM_SOURCE.pdf, // cópia local do PDF oficial (abre sem Internet)
 };
 const topicsLP5 = [
   ['Procedimentos de leitura', `D1|Localizar informações explícitas em um texto.
@@ -160,20 +163,38 @@ const stageRows = [
   ['SAEBLP3', 'Língua Portuguesa', 'LP', '3ª série do Ensino Médio', topicsLP9],
 ];
 export const SAEB_LEVELS = stageRows.map(([id, subject, source, label, topics]) => ({
-  id, subject, source, label: `${subject} · ${label}`, stage: label, max: topics.reduce((n, [, rows]) => n + rows.trim().split('\n').length, 0),
+  id, matrix: 'SAEB', subject, source, label: `${subject} · ${label}`, stage: label, max: topics.reduce((n, [, rows]) => n + rows.trim().split('\n').length, 0),
 }));
 export const SAEB_SKILLS = stageRows.flatMap(([level, subject, source, stage, topics]) =>
   topics.flatMap(([topic, rows]) => rows.trim().split('\n').map((line) => {
     const split = line.indexOf('|');
     const code = line.slice(0, split);
     const description = line.slice(split + 1).trim();
-    return { id: `${level}-${code}`, code, level, subject, stage, topic,
+    return { id: `${level}-${code}`, code, level, matrix: 'SAEB', subject, stage, topic,
       description, label: `${code} · ${description}`, source: MATRIZ_SOURCES[source] };
   })));
-const skillById = new Map(SAEB_SKILLS.map((item) => [item.id, item]));
+
+// Matriz de Referência do ENEM: uma "etapa" por área; cada habilidade guarda a competência de área.
+// Identificador curto (cabe nos 12 caracteres do campo de descritor): ENEMCN-H17, ENEMMT-H3…
+export const ENEM_LEVELS = ENEM_AREAS.map((area) => ({
+  id: `ENEM${area.id}`, matrix: 'ENEM', area: area.id, subject: area.name, source: 'ENEM',
+  label: `ENEM · ${area.name}`, stage: 'ENEM', max: area.competencias.reduce((n, c) => n + c.skills.length, 0),
+}));
+export const ENEM_SKILLS = ENEM_AREAS.flatMap((area) => area.competencias.flatMap((comp) => comp.skills.map(([code, description]) => ({
+  id: `ENEM${area.id}-${code}`, code, level: `ENEM${area.id}`, matrix: 'ENEM', area: area.id, subject: area.name, stage: 'ENEM',
+  competencia: comp.n, competenciaText: comp.text, topic: `Competência de área ${comp.n}`,
+  description, label: `${code} · ${description}`, source: ENEM_SOURCE.pdf,
+}))));
+export const enemArea = (id) => ENEM_AREAS.find((area) => area.id === String(id || '').replace(/^ENEM/, '')) || null;
+
+// Catálogo completo (SAEB + ENEM), usado no editor de prova, no banco, na IA e nos relatórios.
+export const MATRIX_LEVELS = [...SAEB_LEVELS, ...ENEM_LEVELS];
+export const MATRIX_SKILLS = [...SAEB_SKILLS, ...ENEM_SKILLS];
+const skillById = new Map(MATRIX_SKILLS.map((item) => [item.id, item]));
 export const findSkill = (id) => skillById.get(String(id || '').toUpperCase()) || null;
 export function skillLabel(id) {
   const known = findSkill(id);
+  if (known?.matrix === 'ENEM') return `ENEM · ${known.subject} · C${known.competencia} · ${known.code}: ${known.description}`;
   if (known) return `${known.subject} · ${known.stage} · ${known.code}: ${known.description}`;
   return /^D\d{1,2}$/i.test(String(id || ''))
     ? `${String(id).toUpperCase()} · descritor legado sem disciplina/etapa definida` : '';

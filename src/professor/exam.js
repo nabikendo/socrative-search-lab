@@ -4,7 +4,8 @@ import { api } from '../lib/api.js';
 import { h, clear, toast, plural } from '../lib/dom.js';
 import { questionId, parseQuestionsText, parsePdfQuestionText } from '../../shared/exam.js';
 import { printExam } from './print.js';
-import { SAEB_LEVELS, SAEB_SKILLS, skillLabel } from '../../shared/skills.js';
+import { SAEB_LEVELS, ENEM_LEVELS, MATRIX_SKILLS, skillLabel, enemArea } from '../../shared/skills.js';
+import { essayCriteria as enemEssayCriteria, ESSAY_PROMPT } from '../../shared/enem.js';
 import { askText, askYesNo } from '../lib/ask.js';
 
 let root;
@@ -66,6 +67,31 @@ const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, d
 function newQuestion(type) {
   return { id: questionId(), type, text: '', options: ['choice','multi'].includes(type) ? ['', ''] : [], correctIndex: null, correctIndexes:[], numericAnswer:'', tolerance:0, image:'', imageAlt:'', topic:'',difficulty:'',rubric:[],weight: 1 };
 }
+// Objetos de conhecimento do ENEM da área da habilidade escolhida, como sugestões do campo Conteúdo.
+function objectList(q) {
+  const area = enemArea(q.skill?.split('-')[0]);
+  if (!area) return null;
+  return h('datalist', { id: `objetos-${q.id}` }, area.objetos.flatMap((topic) => topic.itens.map((item) => h('option', { value: item.slice(0, 80) }, `${topic.disciplina ? topic.disciplina + ' · ' : ''}${topic.tema}`))));
+}
+function criteriaEditor(q, lock) {
+  const has = q.criteria?.length > 0;
+  return h('details', { class: 'rubric-editor', open: has },
+    h('summary', { class: 'caption' }, has ? `Correção por competências · ${q.criteria.length} competências (soma convertida para o peso ${q.weight})` : 'Correção por competências (redação ENEM)'),
+    h('div', { class: 'stack-s', style: 'margin-top:12px' },
+      has ? h('ul', { class: 'caption', style: 'margin:0;padding-left:18px' }, q.criteria.map((c) => h('li', {}, `${c.label} · níveis ${c.levels.map((level) => level.score).join('/')}`)))
+        : h('p', { class: 'caption' }, 'Na aba Resultados, você escolhe um nível de 0 a 200 em cada competência (I a V); o Atlas soma (até 1000) e converte para o peso da questão.'),
+      !lock && h('button', { class: 'btn quiet', type: 'button', onclick: () => { q.criteria = has ? [] : enemEssayCriteria(); touch(); render(); } },
+        has ? 'Remover correção por competências' : 'Usar as 5 competências da redação ENEM')));
+}
+function appendEssay(model) {
+  appendManualQuestion(model, 'text');
+  const q = model.questions[model.questions.length - 1];
+  q.text = ESSAY_PROMPT;
+  q.weight = 10; q.topic = 'Redação ENEM'; q.criteria = enemEssayCriteria();
+  touch(); render();
+  toast('Redação no modelo ENEM incluída. Troque "…" pelo tema e ajuste o peso.');
+}
+
 function appendManualQuestion(model, type) {
   // PDF-only mode deliberately hides the editable questions. Switch modes
   // before appending; otherwise the new item exists in memory but stays hidden.
@@ -82,7 +108,7 @@ function payload() {
   return { id: state.model.id, title: state.model.title, shuffle: !!state.model.shuffle, classId: state.model.classId || null, feedback: !!state.model.feedback, questions: state.model.pdfOnly ? [] : state.model.questions.map((q) => {
     const options = q.options.map((o) => o.trim());
     const correct = q.type === 'choice' && q.correctIndex !== null ? options[q.correctIndex] : q.type==='multi' ? (q.correctIndexes||[]).map((i)=>options[i]).filter(Boolean) : q.type==='numeric' && q.numericAnswer!=='' ? Number(String(q.numericAnswer).replace(',','.')) : undefined;
-    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct!==undefined&&correct!=='' ? { correct } : {}), ...(q.type==='numeric'?{tolerance:Number(q.tolerance)||0}:{}), image:q.image||'',imageAlt:q.imageAlt||'',topic:q.topic||'',difficulty:q.difficulty||'',rubric:q.rubric||[],weight: Number(q.weight) || 1, skill: q.skill || '', explanation: q.explanation || '' };
+    return { id: q.id, type: q.type, text: q.text, options: options.filter(Boolean), ...(correct!==undefined&&correct!=='' ? { correct } : {}), ...(q.type==='numeric'?{tolerance:Number(q.tolerance)||0}:{}), image:q.image||'',imageAlt:q.imageAlt||'',topic:q.topic||'',difficulty:q.difficulty||'',rubric:q.rubric||[],criteria:q.type==='text'?(q.criteria||[]):[],weight: Number(q.weight) || 1, skill: q.skill || '', explanation: q.explanation || '' };
   }) };
 }
 
@@ -183,7 +209,8 @@ function render() {
 
     !m.locked && h('div', { class: 'row' },
       h('button', { class: 'btn secondary', onclick: () => { appendManualQuestion(m, 'choice'); } }, 'Adicionar questão'),
-      h('button', { class: 'btn quiet', onclick: () => { appendManualQuestion(m, 'text'); } }, 'Questão aberta')),
+      h('button', { class: 'btn quiet', onclick: () => { appendManualQuestion(m, 'text'); } }, 'Questão aberta'),
+      h('button', { class: 'btn quiet', title: 'Questão aberta corrigida pelas 5 competências da redação do ENEM', onclick: () => { appendEssay(m); } }, 'Redação ENEM')),
     !m.locked && pdfOnlyOption(m),
     !m.locked && !m.pdfOnly && quickText(m),
     documentCard(m))),
@@ -384,18 +411,19 @@ function questionCard(q, index) {
       q.image&&h('img',{src:q.image,alt:q.imageAlt||'Imagem da questão',style:'max-width:100%;max-height:280px;object-fit:contain;border-radius:12px'}),
       q.image&&h('div',{class:'row'},h('label',{class:'field grow'},h('span',{},'Descrição acessível da imagem'),h('input',{value:q.imageAlt||'',disabled:lock,oninput:(e)=>{q.imageAlt=e.target.value;touch();}})),!lock&&h('button',{class:'btn quiet',onclick:()=>{q.image='';q.imageAlt='';touch();render();}},'Remover imagem'))),
     h('div', { class: 'row' },
-      h('label', { class: 'field grow' }, h('span', {}, 'Descritor SAEB (Matemática ou Língua Portuguesa)'), h('select', { value: q.skill || '', disabled: lock, onchange: (e) => { q.skill = e.target.value; touch(); } },
+      h('label', { class: 'field grow' }, h('span', {}, 'Habilidade ENEM ou descritor SAEB'), h('select', { value: q.skill || '', disabled: lock, onchange: (e) => { q.skill = e.target.value; touch(); } },
         h('option', { value: '' }, 'Sem habilidade vinculada'),
         q.skill && /^D\d{1,2}$/.test(q.skill) && h('option', { value: q.skill }, skillLabel(q.skill)),
-        ...SAEB_LEVELS.map((level) => h('optgroup', { label: level.label }, SAEB_SKILLS.filter((item) => item.id.startsWith(`${level.id}-`)).map((item) => h('option', { value: item.id }, item.label)))))),
+        ...[...ENEM_LEVELS, ...SAEB_LEVELS].map((level) => h('optgroup', { label: level.label }, MATRIX_SKILLS.filter((item) => item.level === level.id).map((item) => h('option', { value: item.id }, item.matrix === 'ENEM' ? `C${item.competencia} · ${item.label}` : item.label)))))),
       h('label', { class: 'field' }, h('span', {}, 'Peso'), h('input', { type: 'number', min: '0.25', max: '100', step: '0.25', value: q.weight, disabled: lock, style: 'width:90px', oninput: (e) => { q.weight = e.target.value; touch(); } }))),
     h('div',{class:'row'},
-      h('label',{class:'field grow'},h('span',{},'Conteúdo'),h('input',{value:q.topic||'',maxLength:80,disabled:lock,placeholder:'Ex.: frações, geometria',oninput:(e)=>{q.topic=e.target.value;touch();}})),
+      h('label',{class:'field grow'},h('span',{},'Conteúdo'),h('input',{value:q.topic||'',maxLength:80,disabled:lock,list:enemArea(q.skill?.split('-')[0])?`objetos-${q.id}`:null,placeholder:enemArea(q.skill?.split('-')[0])?'Escolha um objeto de conhecimento do ENEM ou digite':'Ex.: frações, geometria',oninput:(e)=>{q.topic=e.target.value;touch();}}),objectList(q)),
       h('label',{class:'field'},h('span',{},'Dificuldade'),h('select',{value:q.difficulty||'',disabled:lock,onchange:(e)=>{q.difficulty=e.target.value;touch();}},h('option',{value:''},'Não definida'),h('option',{value:'easy'},'Fácil'),h('option',{value:'medium'},'Média'),h('option',{value:'hard'},'Difícil')))),
     h('label', { class: 'field' }, h('span', {}, 'Explicação da resposta correta'), h('textarea', { value: q.explanation || '', disabled: lock, placeholder: 'Opcional: será exibida ao estudante se o feedback estiver ativado.', oninput: (e) => { q.explanation = e.target.value; touch(); } })),
     h('details',{class:'rubric-editor'},h('summary',{class:'caption'},`Rubrica de correção${q.rubric?.length?` · ${q.rubric.length} níveis`:''}`),h('div',{class:'stack-s',style:'margin-top:12px'},
       (q.rubric||[]).map((level,index)=>h('div',{class:'row'},h('input',{value:level.label,disabled:lock,maxLength:80,placeholder:`Nível ${index+1}`,oninput:(e)=>{level.label=e.target.value;touch();}}),h('input',{type:'number',value:level.score,disabled:lock,min:0,max:q.weight,step:'0.25','aria-label':'Nota deste nível',oninput:(e)=>{level.score=Number(e.target.value);touch();}}),h('input',{value:level.description||'',disabled:lock,maxLength:240,placeholder:'Critério observado (opcional)',oninput:(e)=>{level.description=e.target.value;touch();}}),!lock&&h('button',{class:'btn quiet',type:'button','aria-label':'Remover nível da rubrica',onclick:()=>{q.rubric.splice(index,1);touch();render();}},'Remover'))),
        !lock&&(q.rubric||[]).length<8&&h('button',{class:'btn quiet',type:'button',onclick:()=>{q.rubric=q.rubric||[];q.rubric.push({label:`Nível ${q.rubric.length+1}`,score:0,description:''});touch();render();}},'Adicionar nível de desempenho'))),
+    q.type==='text'&&criteriaEditor(q,lock),
     !lock && h('button', { class: 'btn quiet', type: 'button', onclick: guard(async () => {
       const raw = payload().questions[index];
       if (!raw.text?.trim()) throw new Error('Escreva o enunciado antes de salvar no banco de questões.');

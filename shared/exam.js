@@ -1,12 +1,12 @@
 // Regras de prova: validação de questões e cálculo de nota.
-import { SAEB_SKILLS } from './skills.js';
+import { MATRIX_SKILLS } from './skills.js';
 
 export class ExamError extends Error {
   constructor(code, message) { super(message || code); this.code = code; }
 }
 
 const MAX_QUESTIONS = 100;
-const SAEB_SKILL_IDS = new Set(SAEB_SKILLS.map((item) => item.id));
+const SAEB_SKILL_IDS = new Set(MATRIX_SKILLS.map((item) => item.id)); // SAEB e ENEM
 const LEGACY_SKILL_IDS = new Set(Array.from({ length: 37 }, (_, i) => `D${i + 1}`));
 
 export function questionId() {
@@ -43,7 +43,14 @@ export function normalizeQuestions(input) {
     const rubric = Array.isArray(raw?.rubric) ? raw.rubric.slice(0, 8).map((level) => ({
       label: text(level?.label, 80), description: text(level?.description, 240), score: Number(level?.score),
     })).filter((level) => level.label && Number.isFinite(level.score) && level.score >= 0 && level.score <= weight) : [];
-    const metadata = { ...(SAEB_SKILL_IDS.has(skill) || LEGACY_SKILL_IDS.has(skill) ? { skill } : {}), ...(explanation ? { explanation } : {}), ...(topic ? { topic } : {}), ...(difficulty ? { difficulty } : {}), ...(image ? { image, imageAlt } : {}), ...(rubric.length ? { rubric } : {}) };
+    // Correção por competências (ex.: redação do ENEM, I a V, 0–200 cada). A nota da questão é
+    // (soma dos níveis escolhidos ÷ soma dos máximos) × peso. Só para questões abertas.
+    const criteria = type === 'text' && Array.isArray(raw?.criteria) ? raw.criteria.slice(0, 6).map((criterion) => ({
+      id: text(criterion?.id, 8), label: text(criterion?.label, 260),
+      levels: (Array.isArray(criterion?.levels) ? criterion.levels : []).slice(0, 8).map((level) => ({ score: Number(level?.score), description: text(level?.description, 400) }))
+        .filter((level) => Number.isFinite(level.score) && level.score >= 0 && level.score <= 1000),
+    })).filter((criterion) => criterion.label && criterion.levels.length >= 2) : [];
+    const metadata = { ...(SAEB_SKILL_IDS.has(skill) || LEGACY_SKILL_IDS.has(skill) ? { skill } : {}), ...(explanation ? { explanation } : {}), ...(topic ? { topic } : {}), ...(difficulty ? { difficulty } : {}), ...(image ? { image, imageAlt } : {}), ...(rubric.length ? { rubric } : {}), ...(criteria.length ? { criteria } : {}) };
     if (type === 'text') return { id, type, text: body, options: [], weight: Math.round(weight * 100) / 100, ...metadata };
 
     if (type === 'numeric') {
@@ -67,7 +74,7 @@ export function normalizeQuestions(input) {
 
 // Versão enviada ao aluno: nunca inclui o gabarito.
 export function studentQuestions(questions) {
-  return questions.map(({ correct, explanation, rubric, ...rest }) => rest);
+  return questions.map(({ correct, explanation, rubric, criteria, ...rest }) => rest);
 }
 
 const round = (n) => Math.round(n * 100) / 100;

@@ -267,6 +267,8 @@ async function start() {
         webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
       } };
     }
+    // Matrizes em PDF (ex.: ENEM) guardadas no próprio Atlas: abrem no leitor de PDF do navegador padrão.
+    if (isAtlasUrl(url, '/matrizes/')) { shell.openExternal(url); return { action: 'deny' }; }
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
   });

@@ -206,7 +206,7 @@ function row(r, exam) {
         h('div', { class: answer ? 'a' : 'a empty' }, answer || 'Sem resposta'),
         auto ? h('div', { class: 'caption' }, feedbackText(q,answer))
           : h('label', { class: 'row caption' }, 'Nota (0 a ' + formatScore(q.weight) + ')',
-            q.rubric?.length ? h('select',{class:'grade-input',value:r.grades[q.id]??'',onchange:(e)=>grade(r.sessionId,q.id,e.target.value)},h('option',{value:''},'Selecione critério'),q.rubric.map((level)=>h('option',{value:String(level.score)},`${level.label} · ${formatScore(level.score)}${level.description?` — ${level.description}`:''}`)))
+            q.criteria?.length ? criteriaGrader(r, q) : q.rubric?.length ? h('select',{class:'grade-input',value:r.grades[q.id]??'',onchange:(e)=>grade(r.sessionId,q.id,e.target.value)},h('option',{value:''},'Selecione critério'),q.rubric.map((level)=>h('option',{value:String(level.score)},`${level.label} · ${formatScore(level.score)}${level.description?` — ${level.description}`:''}`)))
             : h('input', { class: 'grade-input', type: 'number', min: '0', max: String(q.weight), step: '0.25', value: r.grades[q.id] ?? '', onchange: (e) => grade(r.sessionId, q.id, e.target.value) })));
     }),
     r.status === 'active' && h('div',{class:'answer-block'},h('button',{class:'btn quiet',onclick:()=>controlSession(r,'pause')},'Pausar este aluno')),
@@ -251,8 +251,34 @@ function skillInsights(d) {
     })));
 }
 
-async function grade(sessionId, questionId, value) {
-  const reason=await askText('Informe o motivo da alteração da nota (ficará no histórico).');
+// Correção por competências (redação ENEM): um nível por competência; a soma vira nota no peso da questão.
+const criteriaPicks = new Map();
+function criteriaGrader(r, q) {
+  const key = `${r.sessionId}:${q.id}`;
+  const picks = criteriaPicks.get(key) || {};
+  const max = q.criteria.reduce((sum, c) => sum + Math.max(...c.levels.map((level) => level.score)), 0);
+  const done = q.criteria.every((c) => picks[c.id] !== undefined);
+  const total = q.criteria.reduce((sum, c) => sum + (Number(picks[c.id]) || 0), 0);
+  const score = Math.round((total / max) * Number(q.weight) * 100) / 100;
+  return h('div', { class: 'stack-s', style: 'width:100%' },
+    r.grades[q.id] !== undefined && h('p', { class: 'caption' }, `Nota registrada: ${formatScore(r.grades[q.id])} de ${formatScore(q.weight)}. Escolha os níveis abaixo para corrigir de novo.`),
+    ...q.criteria.map((c) => h('label', { class: 'field' }, h('span', {}, c.label),
+      h('select', { class: 'grade-input', style: 'width:100%', value: picks[c.id] === undefined ? '' : String(picks[c.id]), onchange: (event) => {
+        const next = { ...(criteriaPicks.get(key) || {}) };
+        if (event.target.value === '') delete next[c.id]; else next[c.id] = Number(event.target.value);
+        criteriaPicks.set(key, next); render();
+      } }, h('option', { value: '' }, 'Escolha o nível'), c.levels.map((level) => h('option', { value: String(level.score) }, `${level.score} — ${level.description}`))))),
+    h('div', { class: 'row' },
+      h('strong', { class: 'grow' }, done ? `Total ${total}/${max} → nota ${formatScore(score)} de ${formatScore(q.weight)}` : `Escolha o nível das ${q.criteria.length} competências`),
+      h('button', { class: 'btn sm', type: 'button', disabled: !done, onclick: async () => {
+        const detail = q.criteria.map((c) => `${c.id} ${picks[c.id]}`).join(' · ');
+        await grade(r.sessionId, q.id, String(score), `Correção por competências: ${detail} = ${total}/${max}`);
+        criteriaPicks.delete(key);
+      } }, 'Salvar nota da redação')));
+}
+
+async function grade(sessionId, questionId, value, presetReason) {
+  const reason=presetReason ?? await askText('Informe o motivo da alteração da nota (ficará no histórico).');
   if(!reason||reason.trim().length<4){toast('Informe um motivo com pelo menos 4 caracteres.');refresh(true);return;}
   try { await api('/api/grade', { method: 'POST', body: { sessionId, questionId, score: value === '' ? null : value,reason } }); toast('Nota salva e registrada'); }
   catch (error) { toast(error.message); }

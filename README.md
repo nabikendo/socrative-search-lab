@@ -33,8 +33,9 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 7. [Segurança e privacidade](#7-segurança-e-privacidade)
 8. [Dados, backup e atualização](#8-dados-backup-e-atualização)
 9. [Para quem desenvolve](#9-para-quem-desenvolve)
-10. [Novidades da versão 1.4.0](#novidades-da-versão-140)
-11. [Licença](#licença)
+10. [Matriz de Referência do ENEM](#matriz-de-referência-do-enem)
+11. [Novidades da versão 1.4.0](#novidades-da-versão-140)
+12. [Licença](#licença)
 
 ---
 
@@ -116,7 +117,7 @@ Na aba **Prova**:
 1. Dê um **título** e escolha a **turma** da prova.
 2. Escreva as questões. Em **múltipla escolha**, marque o círculo ao lado da alternativa correta para a correção ser automática. Use **Questão aberta** para respostas escritas.
 3. Ajuste o **peso** de cada questão (a nota é a soma dos pesos).
-4. Vincule opcionalmente um **descritor da Matriz de Matemática do SAEB**, escolhendo a etapa correta. O relatório agrupa acertos por etapa e descritor.
+4. Vincule opcionalmente uma **habilidade da Matriz de Referência do ENEM** (H1–H30 de cada área) ou um **descritor do SAEB**. Com uma habilidade do ENEM, o campo **Conteúdo** sugere os objetos de conhecimento da área. O relatório agrupa acertos por habilidade ou descritor.
 5. *(Opcional)* Ative **feedback após cada questão** e escreva uma explicação para mostrar ao aluno depois que responder.
 6. *(Opcional)* **Anexe um PDF ou DOCX** com textos, figuras ou tabelas. Um PDF com texto selecionável também pode ser convertido em questões para revisão. Questões de PDFs escaneados como imagem precisam de OCR externo. O aluno pode abrir o documento durante a prova.
 7. *(Opcional)* Marque **Embaralhar para cada aluno**: cada aluno vê as questões e as alternativas em ordem diferente (e a ordem não muda se ele recarregar a página). Evite alternativas como “todas as anteriores”.
@@ -321,6 +322,18 @@ O instalador (Electron) é gerado por `.github/workflows/desktop-windows.yml` a 
 
 A versão precisa ser nova: o GitHub recusa uma tag que já existe, e o atualizador só oferece versões maiores.
 
+
+## Matriz de Referência do ENEM
+
+A aba **Descritores** traz a Matriz de Referência do ENEM completa (Inep/MEC, 2026), além das matrizes do SAEB:
+
+- **4 áreas** (Linguagens, Matemática, Ciências da Natureza e Ciências Humanas), **30 competências de área** e **120 habilidades** (H1–H30 em cada área), com busca por código ou palavra;
+- os **5 eixos cognitivos** e os **objetos de conhecimento** de cada área (em Ciências da Natureza, separados em Física, Química e Biologia);
+- **Criar com IA no estilo ENEM**: situação-problema contextualizada e 5 alternativas (A–E), opcionalmente focada num objeto de conhecimento;
+- **Redação ENEM**: em **Prova**, o botão **Redação ENEM** inclui uma questão aberta corrigida pelas **5 competências (0 a 200 cada)**. Em **Resultados**, escolha o nível de cada competência; o Atlas soma (até 1000), converte para o peso da questão e registra o detalhamento no histórico. O aluno não vê os critérios;
+- o **PDF oficial** da matriz vem junto com o Atlas e abre sem Internet (botão **Abrir a Matriz do ENEM**).
+
+Fonte: Inep/MEC, *Matrizes de Referência do ENEM* (2026). A publicação permite reprodução total ou parcial, desde que citada a fonte.
 
 ## Novidades da versão 1.4.0
 
