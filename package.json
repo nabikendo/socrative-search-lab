@@ -2,6 +2,7 @@
   "name": "atlas-provas",
   "version": "1.4.0",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "description": "Atlas: provas em rede local, sem Internet durante a aula.",
   "engines": {

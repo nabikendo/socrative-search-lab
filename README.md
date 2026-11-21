@@ -325,3 +325,11 @@ No painel do professor, a engrenagem abre **Configurações**, com aparência (t
 - **Boas-vindas:** dicas na primeira vez de cada perfil; reveja em Ajuda › Rever boas-vindas.
 - **Excluir prova com respostas:** confirmação digitando EXCLUIR e cópia de segurança opcional (restaurável em Importar backup). Provas abertas continuam protegidas.
 - **IA:** somente provedores em nuvem; seletor de modelos com busca e rolagem; limites de resposta maiores para não cortar a questão gerada.
+
+## Licença
+
+Copyright (C) 2026 nabikendo.
+
+O Atlas é software livre: você pode usá-lo, redistribuí-lo e modificá-lo nos termos da **GNU General Public License, versão 3** ou (a seu critério) qualquer versão posterior, publicada pela Free Software Foundation. Escolas e professores podem instalar e adaptar o Atlas gratuitamente; quem distribuir uma versão modificada deve publicar o código dessa versão sob a mesma licença.
+
+O Atlas é distribuído na esperança de ser útil, mas **sem qualquer garantia**. Veja o texto completo em [LICENSE](LICENSE).
