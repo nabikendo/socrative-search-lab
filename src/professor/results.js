@@ -12,6 +12,7 @@ const state = { exams: [], examId: null, data: null, sig: '', open: new Set(), a
 export function mount(el) { root = el; }
 export async function activate() {
   state.exams = (await api('/api/exams')).exams;
+  try { const jump = sessionStorage.getItem('atlas.resultsExam'); if (jump) { sessionStorage.removeItem('atlas.resultsExam'); state.examId = jump; } } catch { /* sem armazenamento */ }
   state.examId = state.exams.some((e) => e.id === state.examId) ? state.examId : (state.exams.find((e) => e.status === 'open') || state.exams[0])?.id ?? null;
   presence.setExam(state.examId);
   presence.resume();

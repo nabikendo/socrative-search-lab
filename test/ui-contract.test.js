@@ -44,7 +44,7 @@ test('cada aba registrada no main.js tem botão e seção no HTML (aba sem seç�
   const page = read('professor.html');
   const main = read('src/professor/main.js');
   const registered = [...main.match(/const tabs = \{([^}]*)\}/)[1].matchAll(/(\w+):/g)].map((match) => match[1]);
-  assert.deepEqual(registered.sort(), ['ajuda', 'banco', 'configuracoes', 'descritores', 'prova', 'resultados', 'turma']);
+  assert.deepEqual(registered.sort(), ['ajuda', 'banco', 'configuracoes', 'descritores', 'inicio', 'prova', 'resultados', 'turma']);
   for (const tab of registered) {
     if (tab === 'configuracoes') assert.match(page, /id="settings-open"/, 'engrenagem ausente');
     else assert.match(page, new RegExp('data-tab="' + tab + '"'), 'botão ausente: ' + tab);
