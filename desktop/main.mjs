@@ -253,8 +253,21 @@ async function start() {
   buildMenu();
   window.setMenuBarVisibility(true);
   window.webContents.setWindowOpenHandler(({ url }) => {
+    // Acompanhamento no projetor: abre numa janela do próprio Atlas (antes era recusado e o botão não fazia nada).
+    if (url.startsWith('http://127.0.0.1:' + port + '/projetor')) {
+      return { action: 'allow', overrideBrowserWindowOptions: {
+        width: 1280, height: 760, autoHideMenuBar: true, title: 'Atlas — Projetor',
+        backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f5f5f7',
+        webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+      } };
+    }
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
+  });
+  // A janela do projetor também só navega dentro do Atlas.
+  window.webContents.on('did-create-window', (child) => {
+    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    child.webContents.on('will-navigate', (event, url) => { if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault(); });
   });
   window.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault();

@@ -62,7 +62,7 @@ window.addEventListener('atlas:add-bank-question', async (event) => {
 });
 
 const blank = () => ({ id: null, title: '', status: 'draft', accessCode: null, document: null, locked: false, shuffle: false,
-  pdfOnly: true, classId: state.classes[0]?.id || null, feedback: false, questions: [newQuestion('choice')] });
+  pdfOnly: false, classId: state.classes[0]?.id || null, feedback: false, questions: [newQuestion('choice')] });
 function newQuestion(type) {
   return { id: questionId(), type, text: '', options: ['choice','multi'].includes(type) ? ['', ''] : [], correctIndex: null, correctIndexes:[], numericAnswer:'', tolerance:0, image:'', imageAlt:'', topic:'',difficulty:'',rubric:[],weight: 1 };
 }
@@ -223,6 +223,9 @@ function render() {
           await loadList();
           await select(id);
           toast(`Prova aberta · código ${code}`);
+          // O código e o QR Code ficam no topo; o botão fica no fim da página. Leva o professor até eles.
+          const banner = root.querySelector('.open-banner');
+          if (banner) { banner.scrollIntoView({ behavior: 'smooth', block: 'start' }); banner.focus({ preventScroll: true }); }
         }) }, 'Abrir para os alunos'),
       m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions)) }, 'Imprimir prova'),
       m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions, { key: true })) }, 'Imprimir gabarito'),
@@ -256,7 +259,7 @@ function openBanner(m) {
   const url = state.urls.length ? `${state.urls[0]}/prova` : '';
   if (!url) return h('div', { class: 'notice warn' }, `Código: ${m.accessCode}. Conecte este computador à rede dos alunos para gerar o endereço de acesso.`);
   const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
-  return h('div', { class: 'card row', style: 'gap:28px' },
+  return h('div', { class: 'card row open-banner', style: 'gap:28px;scroll-margin-top:96px', tabindex: '-1', 'aria-label': `Prova aberta. Código ${m.accessCode}` },
     h('div', { class: 'qr', 'aria-label': `QR Code de ${url}`, innerHTML: qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) }),
     h('div', { class: 'stack-s grow' },
       h('span', { class: 'eyebrow' }, 'Prova aberta · código'),

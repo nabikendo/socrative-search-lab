@@ -1,8 +1,11 @@
 // Criação de elementos sem innerHTML: todo texto entra via textContent (sem risco de XSS).
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
+  let selectValue;
   for (const [key, value] of Object.entries(attrs || {})) {
     if (value === false || value == null) continue;
+    // <select>: o valor só "pega" depois que as opções existem (antes, a Turma aparecia como "Lista geral").
+    if (tag === 'select' && key === 'value') { selectValue = value; continue; }
     if (key === 'class') el.className = value;
     else if (key === 'dataset') Object.assign(el.dataset, value);
     else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2).toLowerCase(), value);
@@ -10,6 +13,7 @@ export function h(tag, attrs = {}, ...children) {
     else el.setAttribute(key, value === true ? '' : value);
   }
   append(el, children);
+  if (selectValue !== undefined && [...el.options].some((option) => option.value === String(selectValue))) el.value = String(selectValue);
   return el;
 }
 

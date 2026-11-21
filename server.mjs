@@ -160,17 +160,21 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return /[";\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
   };
   const decimal = (n) => String(n).replace('.', ',');
+  // Data e hora no relógio do computador do professor (a planilha saía em UTC: 13:08 virava 16:08).
+  const localTime = (iso) => { if (!iso) return ''; const d = new Date(iso); if (Number.isNaN(d.getTime())) return String(iso); const z = (n) => String(n).padStart(2, '0'); return `${z(d.getDate())}/${z(d.getMonth() + 1)}/${d.getFullYear()} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`; };
+  const asNumber = (v) => (/^\d{1,6}$/.test(String(v ?? '')) ? Number(v) : v);
+
   function examCsv(exam) {
     const rows = [['numero', 'nome', 'turma', 'status', 'inicio', 'envio', 'nota', 'maximo', 'pendentes', 'saidas_da_pagina', 'segundos_fora', ...exam.questions.map((q, i) => `Q${i + 1} — ${q.text}`)]];
     for (const r of resultsFor(exam)) {
-      rows.push([r.number, r.name, r.className, r.status === 'submitted' ? 'enviada' : 'em andamento', r.startedAt, r.submittedAt || '', decimal(r.score), decimal(r.max), r.pending, r.away.count, r.away.seconds, ...exam.questions.map((q) => r.answers[q.id] || '')]);
+      rows.push([r.number, r.name, r.className, r.status === 'submitted' ? 'enviada' : 'em andamento', localTime(r.startedAt), localTime(r.submittedAt), decimal(r.score), decimal(r.max), r.pending, r.away.count, r.away.seconds, ...exam.questions.map((q) => r.answers[q.id] || '')]);
     }
     return '\uFEFF' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
   }
 
   function examXlsx(exam) {
     const results=resultsFor(exam);
-    const rows=[['Número','Estudante','Turma','Situação','Início','Entrega','Nota','Máximo','Pendentes','Saídas da página','Segundos fora',...exam.questions.map((q,i)=>`Q${i+1} — ${q.text}`)],...results.map(r=>[r.number,r.name,r.className,r.status==='submitted'?'Entregue':r.status==='paused'?'Pausada':'Em andamento',r.startedAt,r.submittedAt||'',r.score,r.max,r.pending,r.away.count,r.away.seconds,...exam.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join(', '):r.answers[q.id]||'')])];
+    const rows=[['Número','Estudante','Turma','Situação','Início','Entrega','Nota','Máximo','Pendentes','Saídas da página','Segundos fora',...exam.questions.map((q,i)=>`Q${i+1} — ${q.text}`)],...results.map(r=>[asNumber(r.number),r.name,r.className,r.status==='submitted'?'Entregue':r.status==='paused'?'Pausada':'Em andamento',localTime(r.startedAt),localTime(r.submittedAt),r.score,r.max,r.pending,r.away.count,r.away.seconds,...exam.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join(', '):r.answers[q.id]||'')])];
     const xml=(value)=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');
     const column=(index)=>{let name='';for(index++;index;index=Math.floor((index-1)/26))name=String.fromCharCode(65+(index-1)%26)+name;return name;};
     const sheet=rows.map((row,r)=>`<row r="${r+1}">${row.map((value,c)=>{const ref=`${column(c)}${r+1}`;if(typeof value==='number'&&Number.isFinite(value))return `<c r="${ref}"><v>${value}</v></c>`;return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;}).join('')}</row>`).join('');
@@ -385,7 +389,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return { exam: exam ? { title: exam.title, paused:exam.status==='paused' } : null };
   });
   route('POST', '/api/join-requests', async ({ req }) => {
-    limit(req, 'join-request', 10);
+    limit(req, 'join-request', 60);
     const input = await readJson(req);
     const exam = openExamWithCode(input.code);
     const number = String(input.number || '').trim();
@@ -398,8 +402,11 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return { ok:true, message:'Pedido enviado ao professor. Aguarde a autorização e tente entrar novamente.' };
   });
   route('POST', '/api/identify', async ({ req }) => {
-    limit(req, 'identify', 30);
+    // Limite por endereço folgado (salas de até 40+ alunos podem sair por um mesmo endereço, via NAT)
+    // e limite curto por endereço + número, que barra quem tenta adivinhar números.
+    limit(req, 'identify', 240);
     const input = await readJson(req);
+    limit(req, `identify-n${String(input.number ?? '').trim().slice(0, 8)}`, 15);
     const exam = openExamWithCode(input.code);
     const number = String(input.number ?? '').trim();
     const student = exam.classId ? store.classRoster(exam.classId).find((r) => r.number === number) : store.findStudent(number);
@@ -407,8 +414,9 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return { student: { number: student.number, name: student.name }, exam: { title: exam.title } };
   });
   route('POST', '/api/session/start', async ({ req }) => {
-    limit(req, 'start', 30);
+    limit(req, 'start', 240);
     const input = await readJson(req);
+    limit(req, `start-n${String(input.number ?? '').trim().slice(0, 8)}`, 15);
     const exam = openExamWithCode(input.code);
     const student = exam.classId ? store.classRoster(exam.classId).find((r) => r.number === String(input.number ?? '').trim()) : store.findStudent(String(input.number ?? '').trim());
     if (!student) throw new HttpError(404, 'student_not_found', 'Número não encontrado na lista.');
@@ -479,8 +487,11 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     return { ok: true };
   });
   route('POST', '/api/session/restore', async ({ req }) => {
-    limit(req, 'restore', 60);
-    const session = studentSession(await readJson(req));
+    // Exige o token da sessão: o limite é por sessão (40 telas atrás de um mesmo endereço não se bloqueiam).
+    limit(req, 'restore', 4000);
+    const input = await readJson(req);
+    limit(req, `restore-s${String(input.sessionId || '').slice(0, 40)}`, 30);
+    const session = studentSession(input);
     store.activateSchedules();
     const exam = needExam(session.examId);
     if (session.status === 'submitted') return { receipt: { number: session.id, submittedAt: session.submittedAt } };
@@ -1003,7 +1014,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
           columns.some((column) => !Object.hasOwn(headers, column))) throw new HttpError(400, 'invalid_export_template', 'Confira a escala e as colunas da escola.');
       const rows = [columns.map((column) => headers[column]), ...resultsFor(exam).map((result) => columns.map((column) => {
         if (column === 'score') return result.status === 'submitted' && result.max && !result.pending ? decimal(Number((scale * result.score / result.max).toFixed(2))) : '';
-        return column === 'date' ? result.submittedAt || '' : result[column];
+        return column === 'date' ? localTime(result.submittedAt) : result[column];
       }))];
       return '\uFEFF' + rows.map((row) => row.map(csvCell).join(';')).join('\r\n') + '\r\n';
     })() : null;

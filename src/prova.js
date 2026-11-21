@@ -104,6 +104,7 @@ $('#join-form').addEventListener('submit', async (event) => {
     $('#confirm-error').textContent = '';
     clearInterval(joinTimer);
     show('confirm');
+    $('#confirm-yes').focus(); // teclado: Enter confirma direto (antes o foco ficava fora do botão)
   } catch (error) {
     $('#join-error').textContent = error.code === 'student_not_found'
       ? 'Seu número não aparece na lista. Você pode enviar um pedido de autorização ao professor.'
@@ -659,9 +660,40 @@ function finish(receipt) {
     : '';
   $('#review-actions').hidden = !reviewCredentials;
   show('done');
+  watchReopen(reviewCredentials);
   if (hasUnconfirmedAnswers) {
     $('#delivery-receipt').textContent += ' — ATENÇÃO: existem respostas guardadas neste aparelho que não foram confirmadas pelo servidor. Avise o professor.';
   }
+}
+
+// Depois de entregar, a tela confere de tempos em tempos se o professor reabriu a prova deste aluno.
+// Se reabriu, volta sozinha para a prova, com as respostas já salvas (antes ficava parada em "Prova enviada").
+let reopenTimer = null;
+function watchReopen(credentials) {
+  clearInterval(reopenTimer);
+  if (!credentials?.sessionId || !credentials?.code || !credentials?.number || rehearsalId) return;
+  const until = Date.now() + 3 * 60 * 60_000; // confere por até 3 horas
+  reopenTimer = setInterval(async () => {
+    if ($('#done').hidden || Date.now() > until) { clearInterval(reopenTimer); return; }
+    try {
+      let data;
+      try { data = await api('/api/session/restore', { method: 'POST', body: credentials }); }
+      catch (error) {
+        if (error?.code !== 'session_expired') throw error;
+        // Entregou há mais tempo que a validade do acesso: este mesmo aparelho (vinculado) entra de novo.
+        data = await api('/api/session/start', { method: 'POST', body: { code: credentials.code, number: credentials.number, token: credentials.token, deviceId: deviceId() } });
+      }
+      if (data.receipt || !data.session) return;
+      clearInterval(reopenTimer);
+      try { localStorage.removeItem('atlas.last-receipt'); } catch { /* ignore */ }
+      beginSession(data, credentials.code, credentials.number);
+      $('#banner').textContent = 'O professor reabriu sua prova. Suas respostas foram mantidas; revise e entregue de novo.';
+      $('#banner').hidden = false;
+    } catch (error) {
+      // Enviada e não reaberta: 'already_submitted' (pela entrada); encerrada ou aparelho desvinculado: para de conferir.
+      if (['exam_closed', 'invalid_session', 'session_in_use', 'not_found'].includes(error?.code) || error?.status === 404) clearInterval(reopenTimer);
+    }
+  }, 10_000 + Math.floor(Math.random() * 4000)); // 10–14 s, espalhado para não chegarem todos juntos
 }
 
 // ---------- início: tenta retomar uma prova em andamento neste aparelho
@@ -717,6 +749,7 @@ function finish(receipt) {
     $('#delivery-receipt').textContent = `Comprovante ${last.receipt.number} · recebido em ${new Date(last.receipt.submittedAt).toLocaleString('pt-BR')}`;
     $('#review-actions').hidden = false;
     show('done');
+    watchReopen(last.credentials);
     return;
   }
   showJoin();

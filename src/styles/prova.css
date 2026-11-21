@@ -100,3 +100,6 @@ dialog.sheet[open] { display: flex; }
   #exam .q-card, #exam .exam-layout > * { min-width: 0; }
 }
 @media (max-width: 420px) { #exam .exam-sub, #exam .save-state { white-space: nowrap; } #exam .exam-bar > .grow { min-width: 0; } }
+
+/* Janela de entrega em tela baixa (celular pequeno com teclado aberto): Voltar e Enviar sempre à vista. */
+#submit-dialog .submit-actions { position: sticky; bottom: -1px; background: inherit; background-color: var(--surface, #fff); padding: 10px 0 2px; z-index: 1; }
