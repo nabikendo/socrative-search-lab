@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { h, clear, toast } from '../lib/dom.js';
+import { askText, askYesNo } from '../lib/ask.js';
 
 let root;
 let questions = [];
@@ -122,7 +123,7 @@ function questionCard(question) {
         goToExam();
       } }, '+ Adicionar à prova'),
       h('button', { class: 'btn quiet atlas-bank-danger', type: 'button', onclick: async () => {
-        if (!confirm('Excluir esta questão do banco? Questões já usadas em provas não serão alteradas.')) return;
+        if (!await askYesNo('Excluir esta questão do banco? Questões já usadas em provas não serão alteradas.')) return;
         try { await api(`/api/question-bank/${question.bankId}`, { method: 'DELETE' }); favoriteIds.delete(question.bankId); await load(); toast('Questão excluída do banco'); }
         catch (error) { toast(error.message); }
       } }, 'Excluir')));

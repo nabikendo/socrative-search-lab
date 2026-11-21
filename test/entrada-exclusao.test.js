@@ -81,3 +81,10 @@ test('prova com respostas pode ser excluída, com confirmação e backup', async
   const plain = await make('Sem respostas');
   assert.equal((await call(`/api/exams/${plain.id}`, { method: 'DELETE', cookie: admin })).status, 200);
 });
+
+test('histórico de estudante sem provas responde lista vazia (a Turma mostra "Ainda não há provas")', async () => {
+  const admin = (await call('/api/auth/login', { method: 'POST', body: { pin: '123456' } })).cookie;
+  const res = await call('/api/students/st-sem-provas/history', { cookie: admin });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.data, { history: [], recovery: [] });
+});

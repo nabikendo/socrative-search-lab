@@ -83,3 +83,20 @@ dialog.sheet[open] { display: flex; }
 /* aviso de tempo (5 e 1 minuto) */
 .time-alert { font-weight: 600; text-align: center; }
 #help-button[aria-pressed="true"] { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--text); }
+
+/* Celular: "Pedir ajuda" fica fixo no canto, sempre ao alcance (antes rolava para baixo da barra fixa). */
+@media (max-width: 720px) {
+  #exam #help-button {
+    position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
+    z-index: 40; min-height: 48px; padding: 0 18px; border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(20, 16, 60, .22); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  #exam .exam-layout { padding-bottom: 96px; }
+}
+
+/* Telas estreitas (320 px): ferramentas da questão quebram linha em vez de alargar o cartão. */
+@media (max-width: 420px) {
+  #exam .q-tools { flex-wrap: wrap; border-radius: 18px; justify-content: flex-start; }
+  #exam .q-card, #exam .exam-layout > * { min-width: 0; }
+}
+@media (max-width: 420px) { #exam .exam-sub, #exam .save-state { white-space: nowrap; } #exam .exam-bar > .grow { min-width: 0; } }

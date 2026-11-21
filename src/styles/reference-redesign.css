@@ -135,7 +135,7 @@
  #app #tab-banco .atlas-bank-layout { grid-template-columns:1fr; }
  #app #tab-banco .atlas-bank-sidebar { position:static; }
  #app #tab-banco .atlas-bank-answers { grid-template-columns:1fr; }
- #exam .exam-layout { grid-template-columns:1fr; }
+ #exam .exam-layout { grid-template-columns:minmax(0,1fr); }
  #exam .side { position:static; }
 }
 @media (max-width:600px) {

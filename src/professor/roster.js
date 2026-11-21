@@ -1,6 +1,7 @@
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural } from '../lib/dom.js';
 import { parseRosterTextDetailed } from '../../shared/roster.js';
+import { askText, askYesNo } from '../lib/ask.js';
 
 let root;
 let requestTimer;
@@ -45,9 +46,9 @@ async function showHistory(student) {
 }
 
 async function renameStudent(student) {
-  const name = prompt('Corrija o nome do aluno:', student.name);
+  const name = await askText('Corrija o nome do aluno:', student.name);
   if (!name) return;
-  const number=prompt('Corrija o número de chamada:',student.number);
+  const number=await askText('Corrija o número de chamada:',student.number);
   if (!number || (name.trim() === student.name && number.trim()===student.number)) return;
   try {
     await api(`/api/classes/${student.classId || state.classId}/students/${encodeURIComponent(student.number)}/update`, { method:'POST', body:{ name, number:number.trim() } });
@@ -123,14 +124,14 @@ async function confirmImport() {
       ['Alterações de nome no mesmo número', changed.map(([number, name]) => [number, `${current.get(number)} → ${name}`])],
     ];
     const details = sections.map(([title, rows]) => `${title} (${rows.length})\n${rows.map(([number, name]) => `${number} · ${name}`).join('\n')}`).join('\n\n');
-    if (!confirm(`Atualizar a lista de ${state.className}?\n\n${details}\n\nSe for a mesma pessoa com nome ou número corrigido, cancele e use Editar nome na lista atual antes de importar.`)) return;
+    if (!await askYesNo(`Atualizar a lista de ${state.className}?\n\n${details}\n\nSe for a mesma pessoa com nome ou número corrigido, cancele e use Editar nome na lista atual antes de importar.`)) return;
   }
   await commit();
 }
 
 async function deleteSelectedClass() {
   const current = state.classes.find((item) => item.id === state.classId);
-  if (!current || !confirm(`Excluir definitivamente a turma ${current.name} e sua lista? Turmas vinculadas a provas devem ser arquivadas.`)) return;
+  if (!current || !await askYesNo(`Excluir definitivamente a turma ${current.name} e sua lista? Turmas vinculadas a provas devem ser arquivadas.`)) return;
   await api(`/api/classes/${current.id}`, { method: 'DELETE' });
   state.classes = (await api(`/api/classes${state.includeArchived ? '?all=1' : ''}`)).classes;
   state.classId = state.classes[0]?.id || '';
@@ -140,7 +141,7 @@ async function deleteSelectedClass() {
 }
 
 async function createEmptyClass() {
-  const name = prompt('Nome da nova turma')?.trim();
+  const name = (await askText('Nome da nova turma', '', { title: 'Nova turma' }))?.trim();
   if (!name) return;
   const { class: item } = await api('/api/classes', { method: 'POST', body: { name, createEmpty: true } });
   state.classes = (await api(`/api/classes${state.includeArchived ? '?all=1' : ''}`)).classes;
@@ -162,10 +163,10 @@ function studentList(rows, limit, actions = false) {
 }
 
 async function editAccommodation(student) {
-  const extraMinutes = prompt(`Minutos adicionais para ${student.name} em provas agendadas com horário de encerramento (0 a 180)`, '0');
+  const extraMinutes = await askText(`Minutos adicionais para ${student.name} em provas agendadas com horário de encerramento (0 a 180)`, '0');
   if (extraMinutes === null || !extraMinutes.trim()) return;
-  const largeText = confirm('Usar fonte maior ao abrir a prova?');
-  const highContrast = confirm('Usar contraste alto ao abrir a prova?');
+  const largeText = await askYesNo('Usar fonte maior ao abrir a prova?');
+  const highContrast = await askYesNo('Usar contraste alto ao abrir a prova?');
   try {
     await api(`/api/classes/${student.classId || state.classId}/students/${encodeURIComponent(student.number)}/accommodation`, {
       method: 'POST', body: { extraMinutes: Number(extraMinutes), largeText, highContrast },
@@ -263,7 +264,7 @@ function render() {
       h('div',{class:'row between'},h('h2', { class: 'headline' }, 'Lista atual'), state.classId && h('button',{class:'btn quiet',onclick:async()=>{
         const current=state.classes.find((c)=>c.id===state.classId);
         const archived=!!current?.archived;
-        if (!confirm(`${archived?'Restaurar':'Arquivar'} a turma ${current?.name}? ${archived?'Ela voltará à lista ativa.':'Ela não aparecerá para novas provas até ser restaurada.'}`)) return;
+        if (!await askYesNo(`${archived?'Restaurar':'Arquivar'} a turma ${current?.name}? ${archived?'Ela voltará à lista ativa.':'Ela não aparecerá para novas provas até ser restaurada.'}`)) return;
         await api(`/api/classes/${state.classId}/archive`,{method:'POST',body:{archived:!archived}});
         state.classes=(await api(`/api/classes${state.includeArchived?'?all=1':''}`)).classes;
         if (!state.classes.some((c)=>c.id===state.classId)) {state.classId=state.classes[0]?.id||''; await loadClassRoster();}

@@ -777,7 +777,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   });
   route('GET', '/api/students/:id/history', { admin:true }, ({ params }) => {
     const history = store.studentHistory(params.id);
-    if (!history.length) throw new HttpError(404, 'student_history_not_found');
+    // Estudante sem provas: lista vazia, para a tela mostrar "Ainda não há provas".
     const entries = history.map((entry) => {
       const exam = needExam(entry.examId);
       entry.original = exam.original;

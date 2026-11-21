@@ -5,6 +5,7 @@ import { h, clear, toast, plural } from '../lib/dom.js';
 import { questionId, parseQuestionsText, parsePdfQuestionText } from '../../shared/exam.js';
 import { printExam } from './print.js';
 import { SAEB_LEVELS, SAEB_SKILLS, skillLabel } from '../../shared/skills.js';
+import { askText, askYesNo } from '../lib/ask.js';
 
 let root;
 let timer;
@@ -118,7 +119,7 @@ async function save() {
   return exam;
 }
 async function createVersion(exam, kind) {
-  if (state.dirty && !confirm('Criar a versão a partir da última prova salva?')) return;
+  if (state.dirty && !await askYesNo('Criar a versão a partir da última prova salva?')) return;
   const { exam: copy } = await api(`/api/exams/${exam.id}/version`, { method: 'POST', body: { kind } });
   await loadList();
   await select(copy.id);
@@ -216,7 +217,7 @@ function render() {
             return issues.length ? `Questão ${index + 1}: ${issues.join(', ')}` : null;
           }));
           const total = questions.reduce((sum, question) => sum + question.weight, 0);
-          if (!confirm(`Revisar e abrir a prova?\n\n${questions.length} questões · ${total.toFixed(2)} pontos\n${review.filter(Boolean).join('\n')}`)) return;
+          if (!await askYesNo(`Revisar e abrir a prova?\n\n${questions.length} questões · ${total.toFixed(2)} pontos\n${review.filter(Boolean).join('\n')}`, { okLabel: 'Abrir para os alunos' })) return;
           const { id } = state.dirty || !m.id ? await save() : m;
           const { code } = await api(`/api/exams/${id}/open`, { method: 'POST' });
           await loadList();
@@ -225,7 +226,7 @@ function render() {
         }) }, 'Abrir para os alunos'),
       m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions)) }, 'Imprimir prova'),
       m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions, { key: true })) }, 'Imprimir gabarito'),
-      m.id && h('button', { class: 'btn quiet', onclick: guard(async () => { state.model = { ...blank(), title: `${m.title} (cópia)`, questions: payloadQuestions(m).map((q) => ({ ...q, correctIndex: typeof q.correct==='string'?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((value)=>q.options.indexOf(value)).filter((i)=>i>=0):[],numericAnswer:q.type==='numeric'?q.correct:'' })) }; state.dirty = true; }) }, 'Duplicar'),
+      m.id && h('button', { class: 'btn quiet', onclick: guard(async () => { state.model = { ...blank(), title: `${m.title} (cópia)`, pdfOnly: !!m.pdfOnly, shuffle: !!m.shuffle, feedback: !!m.feedback, classId: m.classId ?? blank().classId, questions: payloadQuestions(m).map((q) => ({ ...q, correctIndex: typeof q.correct==='string'?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((value)=>q.options.indexOf(value)).filter((i)=>i>=0):[],numericAnswer:q.type==='numeric'?q.correct:'' })) }; state.dirty = true; }) }, 'Duplicar'),
       m.id && !isOpen && !isPaused && h('button', { class: 'btn danger', onclick: guard(() => deleteExam(m)) }, 'Excluir'))));
 }
 // Exclui a prova. Se já tem respostas, pede confirmação digitada e oferece cópia de segurança antes.
@@ -243,7 +244,7 @@ async function deleteExam(m) {
     });
     if (!confirmed) return;
     query = `?confirm=1${backup ? '&backup=1' : ''}`;
-  } else if (!confirm('Excluir esta prova?')) return;
+  } else if (!await askYesNo('Excluir esta prova?')) return;
   await api(`/api/exams/${m.id}${query}`, { method: 'DELETE' });
   toast('Prova excluída.');
   await loadList();
@@ -301,27 +302,27 @@ function questionText(question, index, locked) {
     input.focus();
   };
   return h('div', { class: 'stack-s' }, input, !locked && h('div', { class: 'row' },
-    h('button', { class: 'btn quiet', onclick: () => {
-      const top = prompt('Numerador');
+    h('button', { class: 'btn quiet', onclick: async () => {
+      const top = await askText('Numerador');
       if (!top) return;
-      const bottom = prompt('Denominador');
+      const bottom = await askText('Denominador');
       if (bottom) insert(`(${top})⁄(${bottom})`);
     } }, 'Fração'),
-    h('button', { class: 'btn quiet', onclick: () => {
-      const value = prompt('Expressão dentro da raiz');
+    h('button', { class: 'btn quiet', onclick: async () => {
+      const value = await askText('Expressão dentro da raiz');
       if (value) insert(`√(${value})`);
     } }, 'Raiz'),
-    h('button', { class: 'btn quiet', onclick: () => {
-      const value = prompt('Expoente inteiro');
+    h('button', { class: 'btn quiet', onclick: async () => {
+      const value = await askText('Expoente inteiro');
       if (value && /^-?\d+$/.test(value)) insert([...value].map((character) => character === '-' ? '⁻' : '⁰¹²³⁴⁵⁶⁷⁸⁹'[Number(character)]).join(''));
     } }, 'Potência'),
-    h('button', { class: 'btn quiet', onclick: () => {
-      const values = prompt('Valores do gráfico de barras, separados por ponto e vírgula', '2;5;3');
+    h('button', { class: 'btn quiet', onclick: async () => {
+      const values = await askText('Valores do gráfico de barras, separados por ponto e vírgula', '2;5;3');
       if (!values) return;
       const points = values.split(';').map((value) => value.trim().replace(',', '.'));
       const numbers = points.map(Number);
       if (numbers.length > 12 || points.some((value, i) => !value || !Number.isFinite(numbers[i]))) { toast('Informe até 12 valores numéricos.'); return; }
-      if (question.image && !confirm('Substituir a imagem atual por este gráfico?')) return;
+      if (question.image && !await askYesNo('Substituir a imagem atual por este gráfico?')) return;
       const canvas = document.createElement('canvas');
       canvas.width = 720;
       canvas.height = 320;
@@ -465,7 +466,7 @@ function documentCard(m) {
         if (!extracted.length) throw new Error('Não encontrei questões numeradas neste PDF.');
         if (state.model !== m) return;
         if (!m.pdfOnly && m.questions.some((question) => question.text.trim()) &&
-            !confirm(`Substituir as questões do editor por ${extracted.length} questões extraídas?`)) return;
+            !await askYesNo(`Substituir as questões do editor por ${extracted.length} questões extraídas?`)) return;
         m.pdfOnly = false;
         m.questions = extracted.map((q) => ({ ...q, correctIndex: null }));
         touch(); render();

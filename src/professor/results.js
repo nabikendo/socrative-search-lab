@@ -3,6 +3,7 @@ import { h, clear, toast, plural, formatScore } from '../lib/dom.js';
 import { finalAnswersForItem } from '../../shared/assessment-results.js';
 import { skillLabel } from '../../shared/skills.js';
 import { createPresencePanel } from './presence.js';
+import { askText, askYesNo } from '../lib/ask.js';
 
 let root;
 let timer;
@@ -147,7 +148,7 @@ function annulmentForm(exam) {
   return h('details', { class: 'card' }, h('summary', {}, 'Anular questão'),
     h('form', { class: 'stack-s', onsubmit: async (event) => {
       event.preventDefault();
-      if (!confirm('Recalcular as notas de toda a turma e registrar esta decisão?')) return;
+      if (!await askYesNo('Recalcular as notas de toda a turma e registrar esta decisão?')) return;
       try {
         await api(`/api/exams/${exam.id}/annul-question`, { method: 'POST', body: {
           questionId: question.value, mode: mode.value, reason: reason.value,
@@ -211,7 +212,7 @@ function row(r, exam) {
     r.status === 'active' && h('div',{class:'answer-block'},h('button',{class:'btn quiet',onclick:()=>controlSession(r,'pause')},'Pausar este aluno')),
     r.status === 'paused' && h('div',{class:'answer-block'},h('button',{class:'btn secondary',onclick:()=>controlSession(r,'resume')},'Retomar este aluno')),
     r.status === 'submitted' && h('div', { class: 'answer-block' }, h('div', {}, h('button', { class: 'btn quiet', onclick: async () => {
-      const reason = prompt('Por que esta prova será reaberta? O motivo ficará no histórico de auditoria.');
+      const reason = await askText('Por que esta prova será reaberta? O motivo ficará no histórico de auditoria.');
       if (!reason) return;
       try { await api(`/api/sessions/${r.sessionId}/reopen`, { method: 'POST', body: { reason } }); toast('Envio reaberto'); refresh(true); }
       catch (error) { toast(error.message); }
@@ -251,7 +252,7 @@ function skillInsights(d) {
 }
 
 async function grade(sessionId, questionId, value) {
-  const reason=prompt('Informe o motivo da alteração da nota (ficará no histórico).');
+  const reason=await askText('Informe o motivo da alteração da nota (ficará no histórico).');
   if(!reason||reason.trim().length<4){toast('Informe um motivo com pelo menos 4 caracteres.');refresh(true);return;}
   try { await api('/api/grade', { method: 'POST', body: { sessionId, questionId, score: value === '' ? null : value,reason } }); toast('Nota salva e registrada'); }
   catch (error) { toast(error.message); }
@@ -288,7 +289,7 @@ function batchCorrection(d){
     })),h('button',{class:'btn',onclick:async()=>{
       const items=pending.filter(({question,result})=>state.batchScores.has(`${result.sessionId}:${question.id}`)&&state.batchScores.get(`${result.sessionId}:${question.id}`)!=='').map(({question,result})=>({sessionId:result.sessionId,questionId:question.id,score:state.batchScores.get(`${result.sessionId}:${question.id}`)}));
       if(!items.length){toast('Preencha ao menos uma nota.');return;}
-      const reason=prompt('Motivo desta correção em lote (mínimo 4 caracteres).');if(!reason||reason.trim().length<4)return;
+      const reason=await askText('Motivo desta correção em lote (mínimo 4 caracteres).');if(!reason||reason.trim().length<4)return;
       try{await api('/api/grade/batch',{method:'POST',body:{items,reason}});for(const item of items)state.batchScores.delete(`${item.sessionId}:${item.questionId}`);toast(`${items.length} nota(s) registradas no histórico.`);refresh(true);}catch(error){toast(error.message);}
     }},'Salvar correções preenchidas'));
 }

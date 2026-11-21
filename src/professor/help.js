@@ -1,6 +1,7 @@
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural } from '../lib/dom.js';
-import { selectSection } from './settings.js';
+import { selectSection } from './settings.js';
+import { askText, askYesNo } from '../lib/ask.js';
 
 let root;
 let timer;
@@ -75,7 +76,7 @@ function render() {
         })},'Salvar política')),
       h('div', { class: 'row' },
         h('a', { class: 'btn secondary', href: '/api/backup', download: '' }, 'Baixar backup agora'),
-        h('button',{class:'btn quiet',onclick:()=>{if(!confirm('Você já baixou e guardou uma cópia do Atlas em um pendrive ou nuvem?'))return;localStorage.setItem(externalBackupKey,String(Date.now()));toast('Lembrete de cópia externa atualizado.');render();}},'Registrar cópia externa'),
+        h('button',{class:'btn quiet',onclick:async()=>{if(!await askYesNo('Você já baixou e guardou uma cópia do Atlas em um pendrive ou nuvem?'))return;localStorage.setItem(externalBackupKey,String(Date.now()));toast('Lembrete de cópia externa atualizado.');render();}},'Registrar cópia externa'),
         h('input', { type: 'file', id: 'restore-file', accept: '.atlas,application/json', hidden: true, onchange: guard(restore) }),
         h('label', { class: 'btn quiet', for: 'restore-file' }, 'Restaurar de um backup…')),
       h('p', { class: 'caption' }, 'Restaurar substitui tudo o que está no Atlas agora. Uma cópia do estado atual fica guardada em data/backups antes da troca.'),
@@ -100,7 +101,7 @@ function render() {
 
 async function loadAudit(){const {events}=await api('/api/audit?limit=50');const list=root.querySelector('#audit-list');clear(list,...events.map(event=>h('div',{class:'notice'},h('strong',{},event.createdAt),h('div',{},`${event.event} · ${event.detail}`))));}
 function defaultRetentionDate(){const date=new Date();date.setFullYear(date.getFullYear()-1);return date.toISOString().slice(0,10);}
-async function anonymizeOldStudents(){const before=root.querySelector('#privacy-before').value;if(!before)throw new Error('Escolha a data limite.');const preview=await api(`/api/privacy/anonymization/preview?before=${encodeURIComponent(before)}`);const status=root.querySelector('#privacy-status');status.textContent=`Serão anonimizados ${preview.students} estudantes e ${preview.sessions} sessões antigas.`;if(!preview.sessions){toast('Não há provas entregues antes dessa data.');return;}if(!confirm(`Anonimizar nomes e números de ${preview.students} estudantes em ${preview.sessions} sessões? A operação não pode ser desfeita.`))return;const result=await api('/api/privacy/anonymization',{method:'POST',body:{before}});status.textContent=`Concluído: ${result.students} estudantes e ${result.sessions} sessões anonimizadas. As respostas e notas foram preservadas.`;toast('Dados pessoais anonimizados.');}
+async function anonymizeOldStudents(){const before=root.querySelector('#privacy-before').value;if(!before)throw new Error('Escolha a data limite.');const preview=await api(`/api/privacy/anonymization/preview?before=${encodeURIComponent(before)}`);const status=root.querySelector('#privacy-status');status.textContent=`Serão anonimizados ${preview.students} estudantes e ${preview.sessions} sessões antigas.`;if(!preview.sessions){toast('Não há provas entregues antes dessa data.');return;}if(!await askYesNo(`Anonimizar nomes e números de ${preview.students} estudantes em ${preview.sessions} sessões? A operação não pode ser desfeita.`))return;const result=await api('/api/privacy/anonymization',{method:'POST',body:{before}});status.textContent=`Concluído: ${result.students} estudantes e ${result.sessions} sessões anonimizadas. As respostas e notas foram preservadas.`;toast('Dados pessoais anonimizados.');}
 
 const faq = (title, text) => h('details', { class: 'faq' }, h('summary', {}, title), h('p', { class: 'sub' }, text));
 
@@ -122,14 +123,14 @@ async function restore(event) {
   if (!file) return;
   const verified=await api('/api/restore/verify',{method:'POST',raw:file});
   let result;
-  if(confirm(`Backup íntegro: ${verified.exams} provas e ${verified.students} registros de estudantes.\n\nOK: substituir todos os dados atuais.\nCancelar: escolher turmas e provas para restaurar.`)) result=await api('/api/restore', { method: 'POST', raw: file });
+  if(await askYesNo(`Backup íntegro: ${verified.exams} provas e ${verified.students} registros de estudantes.\n\nSubstituir tudo troca todos os dados atuais pelos do backup. Para trazer só algumas turmas ou provas, escolha a outra opção.`, { title: 'Restaurar backup', okLabel: 'Substituir tudo', cancelLabel: 'Escolher turmas e provas' })) result=await api('/api/restore', { method: 'POST', raw: file });
   else{
     const menu=[...verified.classes.map((c,i)=>`T${i+1}: Turma ${c.name}`),...verified.examList.map((e,i)=>`P${i+1}: Prova ${e.title}`)].join('\n');
-    const selected=prompt(`Restauração seletiva: digite os códigos separados por vírgula (ex.: T1,P2).\n\n${menu}`);if(!selected)return;
+    const selected=await askText(`Restauração seletiva: digite os códigos separados por vírgula (ex.: T1,P2).\n\n${menu}`);if(!selected)return;
     const tokens=selected.toUpperCase().split(/[\s,;]+/).filter(Boolean);const classes=tokens.filter(x=>/^T\d+$/.test(x)).map(x=>verified.classes[Number(x.slice(1))-1]?.id).filter(Boolean);const exams=tokens.filter(x=>/^P\d+$/.test(x)).map(x=>verified.examList[Number(x.slice(1))-1]?.id).filter(Boolean);
     if(!classes.length&&!exams.length){toast('Nenhuma turma ou prova válida foi selecionada.');return;}
     const params=new URLSearchParams();for(const id of classes)params.append('class',id);for(const id of exams)params.append('exam',id);
-    if(!confirm(`Restaurar ${classes.length} turma(s) e ${exams.length} prova(s)? Os dados selecionados serão mesclados aos atuais. Continuar?`))return;
+    if(!await askYesNo(`Restaurar ${classes.length} turma(s) e ${exams.length} prova(s)? Os dados selecionados serão mesclados aos atuais. Continuar?`))return;
     result=await api(`/api/restore/selective?${params}`,{method:'POST',raw:file});
   }
   toast(`Backup restaurado: ${plural(result.exams, 'prova', 'provas')} e ${plural(result.students??result.classes, 'registro', 'registros')}`);
