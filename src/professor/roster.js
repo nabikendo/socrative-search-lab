@@ -11,6 +11,7 @@ export function mount(el) { root = el; render(); }
 export async function activate() {
   state.classes = (await api(`/api/classes${state.includeArchived ? '?all=1' : ''}`)).classes;
   if (!state.classId && state.classes.length) state.classId = state.classes[0].id;
+  syncClassName();
   await loadClassRoster(); await loadRequests(); render();
   clearInterval(requestTimer);
   requestTimer=setInterval(async()=>{if(!root.hidden && await loadRequests()) render();},5000);
@@ -97,7 +98,13 @@ function previewClass(rows) {
   return classes.length ? h('p', { class: 'notice' }, `Turma identificada: ${classes.join(', ')}`) : null;
 }
 
+// O nome acompanha a turma escolhida (antes ficava vazio na primeira carga e a importação parava).
+function syncClassName() {
+  if (state.classId) state.className = state.classes.find((c) => c.id === state.classId)?.name || state.className;
+}
+
 async function commit() {
+  syncClassName();
   const name = state.className.trim();
   if (!name) throw new Error('Informe ou confirme o nome da turma antes de importar.');
   const saved = await api('/api/classes', { method: 'POST', body: { id: state.classId || undefined, name, roster: state.preview } });
@@ -111,6 +118,7 @@ async function commit() {
 }
 
 async function confirmImport() {
+  syncClassName();
   if (state.classId) {
     const { roster } = await api(`/api/classes/${state.classId}/roster`);
     const current = new Map(roster.map((student) => [student.number, student.name]));
@@ -267,7 +275,7 @@ function render() {
         if (!await askYesNo(`${archived?'Restaurar':'Arquivar'} a turma ${current?.name}? ${archived?'Ela voltará à lista ativa.':'Ela não aparecerá para novas provas até ser restaurada.'}`)) return;
         await api(`/api/classes/${state.classId}/archive`,{method:'POST',body:{archived:!archived}});
         state.classes=(await api(`/api/classes${state.includeArchived?'?all=1':''}`)).classes;
-        if (!state.classes.some((c)=>c.id===state.classId)) {state.classId=state.classes[0]?.id||''; await loadClassRoster();}
+        if (!state.classes.some((c)=>c.id===state.classId)) {state.classId=state.classes[0]?.id||''; syncClassName(); await loadClassRoster();}
         render();
       }}, currentClass?.archived?'Restaurar turma':'Arquivar turma')), studentList(state.roster.map((s)=>({...s,classId:state.classId})), undefined, true))));
 }
