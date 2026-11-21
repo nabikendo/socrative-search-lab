@@ -63,7 +63,8 @@ export async function render(panel, { status }) {
         fill(outcome.models);
         const parts = [`Conexão ok (${outcome.latencyMs} ms)`, `${outcome.models.length} modelo(s) disponível(is)`];
         if (outcome.chat) parts.push(outcome.chat.ok ? 'modelo respondeu' : `modelo não respondeu: ${outcome.chat.error}`);
-        result.className = outcome.chat && !outcome.chat.ok ? 'notice warn' : 'notice';
+        if (outcome.modelListed === false) parts.push(`o modelo “${model.value}” não está na lista deste provedor; escolha um dos modelos listados`);
+        result.className = (outcome.chat && !outcome.chat.ok) || outcome.modelListed === false ? 'notice warn' : 'notice';
         result.textContent = parts.join(' · ') + '.';
         if (!model.value && outcome.models.length) model.input.placeholder = `Ex.: ${outcome.models[0]}`;
       } catch (error) { result.className = 'notice danger'; result.textContent = error.message; }

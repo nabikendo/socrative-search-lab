@@ -56,6 +56,7 @@ export function combobox({ value = '', placeholder = '', suggestions = [], label
   return {
     el: root, input,
     get value() { return input.value.trim(); },
-    setItems(names) { items = [...names]; drawChips(); if (!list.hidden) draw(); },
+    // Ao chegar a lista (ex.: depois de carregar os modelos), abre se o campo ainda estiver em foco.
+    setItems(names) { items = [...names]; drawChips(); if (document.activeElement === input) open(); else if (!list.hidden) draw(); },
   };
 }

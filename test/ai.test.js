@@ -246,3 +246,11 @@ test('erro do provedor vira 422 (nunca 401, que deslogaria o professor) e sem va
     assert.equal(unknown.status, 404);
   } finally { await app2.close(); fs.rmSync(dir2, { recursive: true, force: true }); }
 });
+
+test('teste de conexão avisa quando o modelo escolhido não está na lista do provedor', async () => {
+  const f = fakeFetch((url) => (url.endsWith('/models') ? json({ data: [{ id: 'gpt-a' }, { id: 'gpt-b' }] }) : json({ error: { message: 'model not found' } }, 404)));
+  const typo = await testConnection({ provider: 'openai', apiKey: KEY, model: 'gpt-zzz' }, { fetchImpl: f });
+  assert.equal(typo.modelListed, false);
+  const ok = await testConnection({ provider: 'openai', apiKey: KEY, model: 'gpt-a' }, { fetchImpl: fakeFetch((url) => (url.endsWith('/models') ? json({ data: [{ id: 'gpt-a' }] }) : json({ choices: [{ message: { content: 'OK' } }] }))) });
+  assert.equal(ok.modelListed, true);
+});

@@ -1,5 +1,6 @@
 import * as pdfjs from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import { joinLineItems } from '../../shared/pdf-lines.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -19,7 +20,7 @@ export async function extractPdfText(file, { recognizePage } = {}) {
       if (!line) { line = { y, items: [] }; lines.push(line); }
       line.items.push(item);
     }
-    const text = lines.sort((a, b) => b.y - a.y).map((l) => l.items.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ')).join('\n');
+    const text = lines.sort((a, b) => b.y - a.y).map((l) => joinLineItems(l.items)).join('\n');
     pages.push(recognizePage && text.replace(/[^\p{L}\p{N}]/gu, '').length < 30
       ? await recognizePage(await renderPage(page), n, pdf.numPages)
       : text);
