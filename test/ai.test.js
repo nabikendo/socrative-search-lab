@@ -254,3 +254,14 @@ test('teste de conexão avisa quando o modelo escolhido não está na lista do p
   const ok = await testConnection({ provider: 'openai', apiKey: KEY, model: 'gpt-a' }, { fetchImpl: fakeFetch((url) => (url.endsWith('/models') ? json({ data: [{ id: 'gpt-a' }] }) : json({ choices: [{ message: { content: 'OK' } }] }))) });
   assert.equal(ok.modelListed, true);
 });
+
+test('modelo aposentado pelo Google vira aviso em português com o substituto indicado', async () => {
+  const body = JSON.stringify({ error: { code: 404, message: 'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev).' } });
+  const fetchImpl = async (url) => (String(url).endsWith('/models') || String(url).includes('/models?')
+    ? { ok: true, status: 200, text: async () => JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) }
+    : { ok: false, status: 404, text: async () => body });
+  const outcome = await testConnection({ provider: 'gemini', apiKey: 'k-123456', model: 'gemini-2.5-flash' }, { fetchImpl });
+  assert.equal(outcome.chat.ok, false);
+  assert.equal(outcome.chat.suggestedModel, 'gemini-3.8-flash');
+  assert.match(outcome.chat.error, /desativou o modelo gemini-2\.5-flash.*Troque para gemini-3\.8-flash/);
+});

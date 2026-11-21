@@ -67,6 +67,10 @@ export async function render(panel, { status }) {
         result.className = (outcome.chat && !outcome.chat.ok) || outcome.modelListed === false ? 'notice warn' : 'notice';
         result.textContent = parts.join(' · ') + '.';
         if (!model.value && outcome.models.length) model.input.placeholder = `Ex.: ${outcome.models[0]}`;
+        const next = outcome.chat?.suggestedModel;
+        if (next) result.append(' ', h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+          model.input.value = next; save.click();
+        } }, `Usar ${next} e salvar`));
       } catch (error) { result.className = 'notice danger'; result.textContent = error.message; }
     }, { status });
     const save = button('Salvar', async () => {
