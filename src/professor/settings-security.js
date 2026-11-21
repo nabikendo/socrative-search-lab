@@ -11,8 +11,8 @@ const MODES = {
 const OUTCOME = { ok: ['Funcionou', 'ok'], warning: ['Funcionou com aviso', 'warn'], blocked: ['Bloqueado', 'danger'], uncertain: ['Incerto', ''] };
 
 export async function render(panel, { status }) {
-  let data;
-  try { data = await api('/api/security'); }
+  let data; let prefs = { requirePinLocal: false };
+  try { [data, prefs] = await Promise.all([api('/api/security'), api('/api/teacher-settings')]); }
   catch (error) { clear(panel, notice(error.message, 'danger')); return; }
 
   async function setMode(mode) {
@@ -49,7 +49,14 @@ export async function render(panel, { status }) {
         h('span', { class: 'grow' }, entry.device || 'Aparelho'), h('span', { class: 'meta' }, `${entry.ip} · ${new Date(entry.at).toLocaleString('pt-BR')}`))))
       : h('p', { class: 'caption' }, 'Nenhum teste feito ainda.');
 
+    const pin = h('input', { type: 'checkbox', checked: !!prefs.requirePinLocal });
+    pin.addEventListener('change', async () => {
+      try { prefs = await api('/api/teacher-settings', { method: 'PUT', body: { requirePinLocal: pin.checked } }); toast(pin.checked ? 'O PIN será pedido também neste computador.' : 'Este computador entra sem PIN.'); }
+      catch (error) { pin.checked = !pin.checked; status(error.message); }
+    });
     clear(panel,
+      card('PIN do professor', 'Neste computador o Atlas abre direto, sem pedir PIN. Tablets e celulares da rede sempre precisam do PIN.',
+        h('label', { class: 'setting-check' }, pin, 'Pedir o PIN também neste computador (use se outras pessoas usam esta máquina)')),
       card('Modo de segurança da rede', 'Define como os aparelhos dos alunos se conectam a este computador.',
         modes,
         !data.https.running ? notice('O HTTPS não está disponível neste computador agora' + (data.https.error ? `: ${data.https.error}` : '.'), 'warn') : null,

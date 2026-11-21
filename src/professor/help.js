@@ -40,6 +40,8 @@ function profileCard() {
 function render() {
   clear(root, h('div', { class: 'stack' },
     h('h1', { class: 'title' }, 'Ajuda'),
+    h('div', { class: 'card stack-s' }, h('h2', { class: 'headline' }, 'Primeiros passos'), h('p', { class: 'caption' }, 'Reveja as dicas de boas-vindas: turma, prova, QR Code, acompanhamento ao vivo e IA.'),
+      h('button', { class: 'btn secondary', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('atlas:welcome')) }, 'Rever boas-vindas')),
     desktopProfiles && profileCard(),
 
     h('div', { class: 'card stack-s' },
@@ -88,7 +90,7 @@ function render() {
       faq('Os alunos não conseguem abrir a página', 'Use “Testar a conexão” acima. Confira se o computador e os aparelhos estão no mesmo Wi‑Fi e se os alunos usam o endereço com números (192.168…), nunca “localhost”. No Windows, permita o Atlas no Firewall para Redes privadas.'),
       faq('Dois professores podem aplicar provas ao mesmo tempo?', 'Sim. Cada computador do professor tem seu próprio endereço e código de prova; os alunos usam o QR Code daquele professor. Um único endereço geral para toda a escola exige um servidor e um nome de rede configurados pela escola.'),
       faq('Esqueci o PIN', 'No aplicativo para Windows, abra o menu Atlas › Mostrar PIN do perfil principal. Na versão com janela preta, o PIN aparece nela e fica no arquivo data/pin.txt.'),
-      faq('Como uso ChatGPT, Gemini, Claude ou outra IA?', 'Em Configurações › Inteligência artificial, cole a chave de API do provedor, clique em “Testar conexão”, escolha o modelo e salve. Depois escolha qual IA elabora e qual analisa as questões. Ollama e LM Studio continuam disponíveis e não enviam dados para a internet.'),
+      faq('Como uso ChatGPT, Gemini, Claude ou outra IA?', 'Em Configurações › Inteligência artificial, cole a chave de API do provedor, clique em “Testar conexão”, escolha o modelo e salve. Depois escolha qual IA elabora e qual analisa as questões.'),
       faq('Quero testar o Atlas sem mexer nos meus dados', 'Em Configurações › Modo de teste, ative os dados fictícios. Uma faixa amarela avisa que o modo está ativo; ao sair, seus dados reais voltam intactos.'),
       faq('Apaguei algo por engano', 'Antes de cada limpeza o Atlas guarda uma cópia de segurança. Em Configurações › Dados e limpeza, baixe a cópia em “Backups de segurança” e use “Importar backup”.'),
       faq('Um aluno enviou sem querer', 'Em Resultados, abra o aluno e clique em “Reabrir para o aluno”.'),

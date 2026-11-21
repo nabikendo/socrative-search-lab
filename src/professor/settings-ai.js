@@ -2,6 +2,7 @@ import { api } from '../lib/api.js';
 import { h, clear, toast } from '../lib/dom.js';
 import { confirmAction } from '../lib/confirm.js';
 import { card, field, button, badge, notice } from './settings-kit.js';
+import { combobox } from '../lib/combobox.js';
 
 const TASKS = [['generate', 'Elaborar questões'], ['review', 'Analisar questões']];
 
@@ -13,8 +14,7 @@ export async function render(panel, { status }) {
   const view = (id) => data.providers[id];
   const stateBadge = (provider) => {
     const info = view(provider.id);
-    if (info.ready) return badge(provider.local ? 'Local · pronto' : 'Pronto', 'ok');
-    return badge(provider.local && !info.model ? 'Local' : 'Não configurado');
+    return info.ready ? badge('Pronto', 'ok') : badge('Não configurado');
   };
 
   async function saveTask(task, provider) {
@@ -34,22 +34,27 @@ export async function render(panel, { status }) {
       select.addEventListener('change', () => saveTask(task, select.value));
       return field(label, select);
     });
-    const cloud = TASKS.some(([task]) => !data.catalog.find((item) => item.id === data.tasks[task]).local);
+    const unready = TASKS.filter(([task]) => !view(data.tasks[task]).ready);
     return card('IA usada em cada tarefa', 'Escolha qual IA cria e qual analisa as questões (aba Descritores).',
       h('div', { class: 'settings-grid' }, selects),
-      cloud ? notice('Com provedores na nuvem, o enunciado, o descritor e o texto-base são enviados ao provedor escolhido. Nomes e respostas de alunos nunca são enviados.', 'warn')
-        : notice('A IA local roda neste computador e não envia dados para a internet.'));
+      unready.length ? notice('Falta configurar a IA escolhida: abra o provedor abaixo, cole a chave, escolha o modelo e salve.', 'warn') : null,
+      notice('O enunciado, o descritor e o texto-base são enviados ao provedor escolhido. Nomes e respostas de alunos nunca são enviados.'));
   }
 
   function providerCard(provider) {
     const info = view(provider.id);
     const key = h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: info.hasKey ? `•••• ${info.keyHint} (salva) — deixe em branco para manter` : 'Cole a chave de API' });
     const url = provider.editableUrl ? h('input', { type: 'url', value: info.baseUrl, placeholder: provider.baseUrl || 'https://servidor.exemplo/v1', autocomplete: 'off' }) : null;
-    const listId = `models-${provider.id}`;
-    const models = h('datalist', { id: listId });
-    const model = h('input', { type: 'text', value: info.model, list: listId, placeholder: 'Escolha na lista ou digite o nome do modelo', autocomplete: 'off', spellcheck: false });
+    const model = combobox({ value: info.model, placeholder: 'Escolha ou digite o modelo', suggestions: provider.suggestions ?? [] });
     const result = h('p', { class: 'caption', role: 'status' });
-    const fill = (names) => { clear(models, names.map((name) => h('option', { value: name }))); };
+    let loaded = false;
+    const fill = (names) => { loaded = true; model.setItems(names); };
+    // Ao abrir o campo pela primeira vez com a chave já salva, carrega os modelos do provedor.
+    model.input.addEventListener('focus', async () => {
+      if (loaded || !info.hasKey) return;
+      loaded = true;
+      try { fill((await api(`/api/ai/providers/${provider.id}/models`)).models); } catch { loaded = false; }
+    });
 
     const test = button('Testar conexão', async () => {
       result.className = 'caption'; result.textContent = 'Testando…';
@@ -60,7 +65,7 @@ export async function render(panel, { status }) {
         if (outcome.chat) parts.push(outcome.chat.ok ? 'modelo respondeu' : `modelo não respondeu: ${outcome.chat.error}`);
         result.className = outcome.chat && !outcome.chat.ok ? 'notice warn' : 'notice';
         result.textContent = parts.join(' · ') + '.';
-        if (!model.value && outcome.models.length) model.placeholder = `Ex.: ${outcome.models[0]}`;
+        if (!model.value && outcome.models.length) model.input.placeholder = `Ex.: ${outcome.models[0]}`;
       } catch (error) { result.className = 'notice danger'; result.textContent = error.message; }
     }, { status });
     const save = button('Salvar', async () => {
@@ -81,10 +86,9 @@ export async function render(panel, { status }) {
     return h('details', { class: 'ai-provider', dataset: { provider: provider.id } },
       h('summary', { class: 'row' }, h('strong', { class: 'grow' }, provider.name), used.length ? badge('Usada: ' + used.join(' e ')) : null, stateBadge(provider)),
       h('div', { class: 'stack-s ai-provider-body' },
-        provider.local ? notice('Funciona no seu computador ou rede local. Nenhum dado sai para a internet.') : null,
         provider.needsKey || provider.optionalKey ? field('Chave de API', key, data.encrypted ? 'A chave fica criptografada neste computador e nunca é exibida de novo.' : 'A chave fica salva neste computador, em arquivo protegido do seu usuário, e nunca é exibida de novo.') : null,
         url ? field('Endereço do serviço', url, provider.baseUrl ? `Padrão: ${provider.baseUrl}` : 'Obrigatório. Use http:// só para endereços da sua rede.') : null,
-        field('Modelo', model), models,
+        field('Modelo', model.el),
         h('div', { class: 'settings-actions' }, test, save, clearKey),
         result));
   }
@@ -92,11 +96,8 @@ export async function render(panel, { status }) {
   function draw(openId) {
     const wasOpen = new Set([...panel.querySelectorAll('details[open]')].map((node) => node.dataset.provider));
     if (openId) wasOpen.add(openId);
-    const local = data.catalog.filter((provider) => provider.local);
-    const cloud = data.catalog.filter((provider) => !provider.local);
     clear(panel, taskCard(),
-      card('Provedores locais', 'Ollama e LM Studio rodam no seu computador.', h('div', { class: 'ai-list' }, local.map(providerCard))),
-      card('Provedores na nuvem', 'Informe a chave de API, teste a conexão e escolha o modelo. Você paga direto ao provedor, conforme o uso.', h('div', { class: 'ai-list' }, cloud.map(providerCard))));
+      card('Provedores de IA', 'Informe a chave de API, teste a conexão e escolha o modelo. Você paga direto ao provedor, conforme o uso.', h('div', { class: 'ai-list' }, data.catalog.map(providerCard))));
     for (const node of panel.querySelectorAll('details')) if (wasOpen.has(node.dataset.provider)) node.open = true;
   }
   draw();

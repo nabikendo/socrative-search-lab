@@ -126,3 +126,16 @@
 .security-mode { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .security-mode.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .security-mode input { margin-top: 2px; }
+
+/* Seletor de modelo: lista com altura fixa e rolagem própria (funciona com centenas de modelos). */
+.combo { display: grid; gap: 6px; min-width: 0; }
+.combo-list { list-style: none; margin: 0; padding: 4px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--card, var(--bg)); }
+.combo-option { padding: 10px 12px; min-height: 40px; display: flex; align-items: center; border-radius: 8px; cursor: pointer; overflow-wrap: anywhere; font-size: 15px; }
+.combo-option:hover, .combo-option.active { background: color-mix(in srgb, var(--accent, #2563eb) 12%, transparent); }
+.combo-option.selected { font-weight: 600; }
+.combo-empty { padding: 10px 12px; color: var(--muted, #667); font-size: 14px; }
+.combo-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.combo-chips:empty { display: none; }
+.chip { border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 999px; padding: 6px 12px; min-height: 36px; font: inherit; font-size: 14px; cursor: pointer; }
+.chip:hover, .chip:focus-visible { border-color: var(--accent, #2563eb); }

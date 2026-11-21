@@ -9,6 +9,8 @@ import * as bank from './bank.js';
 import * as descriptors from './descriptor-lab.js';
 import * as settings from './settings.js';
 import * as home from './home.js';
+import { maybeWelcome, showWelcome } from './welcome.js';
+import { selectSection } from './settings.js';
 import { initSearch } from './search.js';
 
 // Chegou aqui = todos os módulos carregaram: tira o aviso "Carregando…" (se um módulo falhar, ele permanece visível).
@@ -33,13 +35,20 @@ initializeThemeButton();
 let mounted = false;
 let active = null;
 
-function showLogin() {
+// pinNeeded: aparelhos da rede precisam do PIN; neste computador basta entrar (a menos que o PIN seja exigido nas configurações).
+let pinNeeded = true;
+function showLogin(needsPin = pinNeeded) {
+  pinNeeded = needsPin;
   active?.deactivate?.();
   active = null;
   $('#app').hidden = true;
   $('#login').hidden = false;
+  $('#pin-block').hidden = !needsPin;
+  $('#login-lead').textContent = needsPin ? 'Digite o PIN do professor para entrar neste aparelho.' : 'Suas provas, turmas e resultados em um só lugar.';
+  $('#login-submit').textContent = needsPin ? 'Entrar' : 'Começar';
+  $('#login-error').textContent = '';
   $('#pin').value = '';
-  $('#pin').focus();
+  (needsPin ? $('#pin') : $('#login-submit')).focus();
 }
 
 // Aviso fixo enquanto o modo de teste estiver ativo: os dados mostrados são fictícios.
@@ -59,9 +68,11 @@ async function showApp() {
     for (const [name, module] of Object.entries(tabs)) module.mount($(`#tab-${name}`));
     mounted = true;
   }
+  sessionStorage.removeItem('atlas.loggedOut');
   syncTestBanner();
   const { roster: students } = await api('/api/roster');
   openTab(location.hash.slice(1) in tabs ? location.hash.slice(1) : students.length ? 'inicio' : 'turma');
+  maybeWelcome({ goto: openTab, selectSection });
 }
 
 const TITLES = { inicio: 'Início', turma: 'Turma', prova: 'Prova', banco: 'Banco de questões', descritores: 'Descritores', resultados: 'Resultados', ajuda: 'Ajuda', configuracoes: 'Configurações' };
@@ -90,15 +101,26 @@ for (const button of document.querySelectorAll('[data-tab]')) button.addEventLis
 $('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   $('#login-error').textContent = '';
-  try { await api('/api/auth/login', { method: 'POST', body: { pin: $('#pin').value.trim() } }); await showApp(); }
-  catch (error) { $('#login-error').textContent = error.message; }
+  try {
+    if (pinNeeded) await api('/api/auth/login', { method: 'POST', body: { pin: $('#pin').value.trim() } });
+    else await api('/api/auth/local', { method: 'POST' });
+    await showApp();
+  } catch (error) { $('#login-error').textContent = error.message; }
 });
-$('#logout').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); showLogin(); });
-window.addEventListener('atlas:auth-required', showLogin);
+$('#logout').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); sessionStorage.setItem('atlas.loggedOut', '1'); await start(); });
+window.addEventListener('atlas:auth-required', () => start());
+window.addEventListener('atlas:welcome', () => showWelcome({ goto: openTab, selectSection }));
 window.addEventListener('atlas:goto', (event) => openTab(event.detail));
 
-(async () => {
-  try { (await api('/api/auth/status')).authenticated ? await showApp() : showLogin(); }
-  catch { showLogin(); }
-})();
-
+// Entra sozinho neste computador; pede o PIN só em aparelhos da rede (ou se o professor exigir nas configurações).
+async function start() {
+  try {
+    const status = await api('/api/auth/status');
+    if (status.authenticated) { await showApp(); return; }
+    if (!status.pinRequired && !sessionStorage.getItem('atlas.loggedOut')) {
+      try { await api('/api/auth/local', { method: 'POST' }); await showApp(); return; } catch { /* cai na tela de entrada */ }
+    }
+    showLogin(status.pinRequired);
+  } catch { showLogin(true); }
+}
+start();

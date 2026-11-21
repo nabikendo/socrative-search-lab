@@ -20,14 +20,21 @@
       </div>
     </main>
     <main id="login" class="center-screen" hidden>
-      <form id="login-form" class="stack" style="width: min(360px, 100%)">
+      <form id="login-form" class="stack welcome-login">
+        <span class="atlas-brand-icon login-mark" aria-hidden="true">◇</span>
         <div class="stack-s">
-          <h1 class="title-m">Painel do professor</h1>
-          <p class="lead" style="font-size: 17px">Digite o PIN do professor. No aplicativo para Windows, use o menu Atlas › Mostrar PIN do perfil principal; na versão com janela preta, o PIN aparece nela.</p>
+          <h1 class="title-m" id="login-title">Bem-vindo ao Atlas</h1>
+          <p class="lead" id="login-lead" style="font-size: 17px">Suas provas, turmas e resultados em um só lugar.</p>
         </div>
-        <input id="pin" class="code-input" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••" aria-label="PIN do professor" />
+        <div id="pin-block" class="stack-s" hidden>
+          <input id="pin" class="code-input" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••" aria-label="PIN do professor" />
+          <details class="caption pin-help">
+            <summary>Onde encontro o PIN?</summary>
+            <p>No computador do professor, abra o menu <strong>Atlas › Mostrar PIN do perfil principal</strong>. Na versão com janela preta, o PIN aparece nela.</p>
+          </details>
+        </div>
         <p id="login-error" class="error" role="alert"></p>
-        <button class="btn big block" type="submit">Entrar</button>
+        <button id="login-submit" class="btn big block" type="submit">Entrar</button>
       </form>
     </main>
 

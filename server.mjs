@@ -16,6 +16,7 @@ import { skillLabel } from './shared/skills.js';
 import { openAiSettings } from './lib/ai-settings.mjs';
 import { registerAiRoutes } from './lib/ai-routes.mjs';
 import { registerMaintenanceRoutes } from './lib/maintenance-routes.mjs';
+import { createSafetyBackup } from './lib/maintenance.mjs';
 import { createTestMode } from './lib/test-mode.mjs';
 import { openSecuritySettings, cleanDeviceId, clientIp, deviceLabel, isLoopback } from './lib/security.mjs';
 import { ensureCertificate } from './lib/tls.mjs';
@@ -604,7 +605,21 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     sendJson(res, 200, { ok: true }, { 'set-cookie': 'atlas_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
     return null;
   });
-  route('GET', '/api/auth/status', ({ req }) => ({ authenticated: isAdmin(req) }));
+  // Neste computador (o aplicativo do professor), o PIN é opcional: quem abre o Atlas na própria máquina já é o professor.
+  // Aparelhos da rede (tablet, celular) continuam precisando do PIN. Dá para exigir o PIN também aqui em Configurações › Segurança.
+  const isThisComputer = (req) => isLoopback(req.socket.remoteAddress) && /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host || '')
+    && (!req.headers.origin || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.origin))
+    && req.headers['sec-fetch-site'] !== 'cross-site';
+  const pinRequiredHere = () => readPreferences().requirePinLocal === true;
+  route('POST', '/api/auth/local', ({ req, res }) => {
+    limit(req, 'login-local', 20);
+    if (!isThisComputer(req) || pinRequiredHere()) throw new HttpError(403, 'pin_required', 'Digite o PIN do professor.');
+    const token = crypto.randomBytes(32).toString('hex');
+    adminSessions.set(token, Date.now() + ADMIN_TTL_MS);
+    sendJson(res, 200, { ok: true }, { 'set-cookie': `atlas_admin=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${ADMIN_TTL_MS / 1000}` });
+    return null;
+  });
+  route('GET', '/api/auth/status', ({ req }) => ({ authenticated: isAdmin(req), pinRequired: !isThisComputer(req) || pinRequiredHere() }));
 
   if (desktopProfiles) {
     // Erros do gerenciador de perfis trazem code e status HTTP próprios; erros do sistema seguem adiante.
@@ -661,7 +676,7 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
   // professor
   // Teacher preferences are private to the server and never exposed to student routes.
   const preferencesFile = path.join(dataDir, 'teacher-settings.json');
-  const defaults = { theme:'auto', fontSize:'medium', highContrast:false, compact:false, presentation:false,
+  const defaults = { theme:'auto', fontSize:'medium', highContrast:false, compact:false, presentation:false, requirePinLocal:false, welcomeSeen:false,
     defaultMinutes:50, shuffle:false, showAnswerKey:false, submissionSound:true };
   function readPreferences() {
     try { return { ...defaults, ...JSON.parse(fs.readFileSync(preferencesFile,'utf8')) }; }
@@ -893,12 +908,18 @@ export function createApp({ dataDir = path.join(root, 'data'), pin = process.env
     if (input.classId && !store.getClass(String(input.classId))) throw new HttpError(400, 'class_not_found');
     return { ok: true, exam: store.saveExam({ id: input.id ? String(input.id) : null, title, questions: input.questions, shuffle: input.shuffle, classId: input.classId, feedback: input.feedback }) };
   });
-  route('DELETE', '/api/exams/:id', { admin: true }, ({ params }) => {
+  route('DELETE', '/api/exams/:id', { admin: true }, ({ params, url }) => {
     const exam = needExam(params.id);
     if (['open', 'paused'].includes(exam.status)) throw new HttpError(409, 'exam_in_progress', 'Encerre a prova antes de excluí-la.');
-    if (store.hasSessions(params.id)) throw new HttpError(409, 'exam_has_sessions', 'Esta prova já tem respostas e não pode ser excluída.');
-    store.deleteExam(params.id);
-    return { ok: true };
+    if (!store.hasSessions(params.id)) { store.deleteExam(params.id); return { ok: true, removed: { sessions: 0, answers: 0, grades: 0 } }; }
+    // Prova com respostas: só é excluída com confirmação explícita (confirm=1). O backup (backup=1) é feito antes.
+    if (url.searchParams.get('confirm') !== '1') {
+      throw new HttpError(409, 'exam_has_sessions', 'Esta prova tem respostas de alunos. Confirme a exclusão para apagá-la junto com os resultados.');
+    }
+    const backup = url.searchParams.get('backup') === '1' ? createSafetyBackup(store, 'excluirprova') : null;
+    const removed = store.deleteExamWithResults(params.id);
+    store.addAudit('exam_deleted', params.id, JSON.stringify({ title: exam.title, ...removed, backup: backup?.name ?? null }));
+    return { ok: true, removed, backup };
   });
   route('POST', '/api/exams/:id/open', { admin: true }, ({ params }) => { const exam=needExam(params.id);const code=store.openExam(params.id);store.addAudit('exam_opened',exam.id,'Prova aberta para os alunos.');return { ok: true, code }; });
   route('POST', '/api/exams/:id/close', { admin: true }, ({ params }) => { const exam=needExam(params.id);store.closeExam(params.id);store.addAudit('exam_closed',exam.id,'Prova encerrada pelo professor.');watchedExamId=null;saveCopy(needExam(params.id));return { ok: true }; });

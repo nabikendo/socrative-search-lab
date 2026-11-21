@@ -1,3 +1,4 @@
+import { selectSection } from './settings.js';
 import { api } from '../lib/api.js';
 import { h, clear, toast } from '../lib/dom.js';
 import { SAEB_LEVELS, SAEB_SKILLS, findSkill, MATRIZ_SOURCES } from '../../shared/skills.js';
@@ -32,21 +33,23 @@ function generate() {
   render();
 }
 // Descobre qual IA foi escolhida para a tarefa em Configurações › Inteligência artificial.
+// Sem IA configurada, abre um aviso com atalho direto para a configuração (em vez de falhar em silêncio).
 async function aiTarget(task) {
   const choice = (await api('/api/ai/status'))[task];
-  if (choice.provider === 'ollama') {
-    const models = (await api('/api/ai/local-models')).models || [];
-    if (!models.length) { toast('IA local indisponível: instale o Ollama e um modelo, ou escolha outra IA em Configurações › Inteligência artificial.'); return null; }
-    return { ...choice, models, model: models.includes(choice.model) ? choice.model : models[0] };
-  }
-  if (!choice.ready) { toast('Configure '+choice.name+' em Configurações › Inteligência artificial.'); return null; }
+  if (!choice.ready) { needSetup(choice); return null; }
   return choice;
 }
-const aiNote = (target) => target.local
-  ? 'A IA local roda no computador e não envia dados para serviços externos.'
-  : 'Usando '+target.name+' · '+target.model+'. O descritor, o texto-base e a questão são enviados ao provedor; dados de alunos nunca são enviados.';
-const aiModelField = (target, label) => target.models
-  ? field(label, h('select',{name:'model'},target.models.map(name=>h('option',{value:name,selected:name===target.model},name)))) : null;
+function needSetup(choice) {
+  const dialog = h('dialog', { class: 'atlas-descriptor-editor', 'aria-label': 'Configurar IA' },
+    h('h2', { class: 'headline' }, 'Configure uma IA para continuar'),
+    h('p', {}, 'Para criar e analisar questões com IA, cadastre a chave de API de um provedor (Gemini, ChatGPT, Claude, DeepSeek, Groq…), escolha o modelo e salve.'),
+    h('p', { class: 'caption' }, choice?.name ? `IA escolhida agora: ${choice.name} — ainda sem chave ou modelo.` : ''),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn secondary', type: 'button', onclick: () => dialog.close() }, 'Agora não'),
+      h('button', { class: 'btn', type: 'button', onclick: () => { dialog.close(); selectSection('ai'); window.dispatchEvent(new CustomEvent('atlas:goto', { detail: 'configuracoes' })); } }, 'Abrir configuração de IA')));
+  document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
+}
+const aiNote = (target) => 'Usando '+target.name+' · '+target.model+'. O descritor, o texto-base e a questão são enviados ao provedor; dados de alunos nunca são enviados.';
 async function aiEditor() {
   let target;
   try { target = await aiTarget('generate'); }
@@ -57,10 +60,10 @@ async function aiEditor() {
     event.preventDefault();
     const values=new FormData(form);
     const button=form.querySelector('[type=submit]');
-    button.disabled=true;button.textContent=target.local?'Gerando no computador…':'Gerando…';
+    button.disabled=true;button.textContent='Gerando… (pode levar até 1 minuto)';
     try{
       const result=await api('/api/ai/descriptor-question',{method:'POST',body:{
-        skillId:skill.id,model:target.models?String(values.get('model')):undefined,
+        skillId:skill.id,
         context:String(values.get('context')||'')}});
       if(state.skill!==skill.id){toast('Você mudou de descritor; a questão gerada não foi inserida.');return;}
       state.draft=result.question;state.error='';dialog.close();render();
@@ -69,7 +72,6 @@ async function aiEditor() {
     finally{button.disabled=false;button.textContent='Gerar rascunho com IA';}
   }},
     h('p',{class:'notice'},'Descritor '+skill.code+': '+skill.description),
-    aiModelField(target,'Modelo instalado no computador'),
     field('Texto-base e orientações adicionais (obrigatório para Língua Portuguesa)',h('textarea',{
       name:'context',rows:5,maxLength:8000,
       placeholder:skill.subject==='Língua Portuguesa'?'Cole aqui o texto que o aluno deverá interpretar.':'Opcional: contexto escolar, situações-problema ou conteúdos específicos.'})),
@@ -154,12 +156,11 @@ async function analyze() {
 async function reviewQuestion(q) {
   const target = await aiTarget('review');
   if (!target) return;
-  const select = target.models ? h('select',{},target.models.map(name=>h('option',{value:name,selected:name===target.model},name))) : null;
   const outcome=h('div',{class:'stack-s'},h('p',{class:'caption'},'Parecer provisório: a revisão do professor continua necessária. '+aiNote(target)));
   const submit=h('button',{class:'btn',onclick:async()=>{
     submit.disabled=true;submit.textContent='Analisando…';
     try{
-      const result=await api('/api/ai/descriptor-review',{method:'POST',body:{skillId:state.skill,model:select?select.value:undefined,question:q}});
+      const result=await api('/api/ai/descriptor-review',{method:'POST',body:{skillId:state.skill,question:q}});
       clear(outcome,h('p',{class:result.aligned?'notice':'notice warn'},result.aligned?'Possível alinhamento':'Possível divergência'),
         h('p',{},result.justification),
         ...result.improvements.map(text=>h('p',{class:'caption'},'Sugestão: '+text)));
@@ -169,7 +170,7 @@ async function reviewQuestion(q) {
   const dialog=h('dialog',{class:'atlas-descriptor-editor'},
     h('h2',{class:'headline'},'Análise de questão por IA'),
     h('p',{class:'caption'},q.text),
-    select&&field('Modelo',select),outcome,
+    outcome,
     h('div',{class:'row'},submit,h('button',{class:'btn secondary',onclick:()=>dialog.close()},'Fechar')));
   document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
 }
@@ -210,7 +211,7 @@ function render() {
           'aria-pressed':String(s.id===state.skill),onclick:()=>chooseSkill(s.id)},
           h('strong',{},s.code),h('span',{},s.description)))),
         h('a',{href:MATRIZ_SOURCES[stage?.source||'MAT'],target:'_blank',rel:'noopener noreferrer',class:'btn secondary'},'Ver PDF oficial')),
-      h('main',{class:'atlas-descriptor-main stack'},
+      h('div',{class:'atlas-descriptor-main stack'},
         skill&&h('div',{class:'card stack-s'},
           h('p',{class:'eyebrow'},skill.subject+' · '+skill.stage+' · '+skill.topic),
           h('h2',{class:'title-m'},skill.code+' — '+skill.description),

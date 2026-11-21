@@ -42,7 +42,7 @@ O CI testa em Node 24 e 26, gera o instalador NSIS, verifica o manifesto de atua
 
 - O instalador não tem certificado de assinatura digital. O Windows pode exibir aviso de reputação do SmartScreen.
 - A leitura de questões em PDF depende da qualidade do texto extraído; PDF digitalizado requer OCR instalado.
-- A IA para gerar/analisar questões por descritor é opcional, funciona com Ollama local e precisa de revisão pedagógica.
+- A IA para gerar/analisar questões por descritor é opcional, funciona com provedores em nuvem (Gemini, ChatGPT, Claude…) configurados pelo professor e precisa de revisão pedagógica.
 - A câmera móvel ao vivo via HTTP em endereço da rede local pode ser bloqueada pelo navegador; não depende disso a aplicação normal de provas.
 - Testes automatizados não substituem teste de campo com a turma e computadores reais.
 

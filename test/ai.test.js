@@ -66,16 +66,9 @@ test('Gemini: chave no cabeçalho (nunca na URL), JSON mode e lista só modelos 
   assert.equal(f.calls[1].body.generationConfig.responseMimeType, 'application/json');
 });
 
-test('Ollama e LM Studio continuam locais e sem chave', async () => {
-  const ollama = fakeFetch(() => json({ models: [{ name: 'llama3:8b' }], message: { content: '{}' } }));
-  const o = createClient({ provider: 'ollama', model: 'llama3:8b' }, { fetchImpl: ollama });
-  assert.deepEqual(await o.listModels(), ['llama3:8b']);
-  assert.equal(ollama.calls[0].url, 'http://127.0.0.1:11434/api/tags');
-  const lm = fakeFetch(() => json({ data: [{ id: 'qwen' }] }));
-  assert.deepEqual(await createClient({ provider: 'lmstudio' }, { fetchImpl: lm }).listModels(), ['qwen']);
-  assert.equal(lm.calls[0].url, 'http://127.0.0.1:1234/v1/models');
-  assert.equal('authorization' in lm.calls[0].options.headers, false);
-  assert.ok(PROVIDERS.filter((p) => p.local).every((p) => !p.needsKey));
+test('só há provedores em nuvem: IA local (Ollama/LM Studio) foi removida', () => {
+  assert.ok(PROVIDERS.every((p) => !['ollama', 'lmstudio'].includes(p.id) && !p.local));
+  assert.ok(PROVIDERS.filter((p) => p.id !== 'custom').every((p) => p.needsKey));
 });
 
 test('provedor da nuvem exige chave e seu endereço não pode ser desviado', () => {
@@ -85,7 +78,7 @@ test('provedor da nuvem exige chave e seu endereço não pode ser desviado', () 
 });
 
 test('endereços: http só na máquina/rede local, sem credenciais, https liberado', () => {
-  assert.equal(validateBaseUrl('http://localhost:11434/'), 'http://localhost:11434');
+  assert.equal(validateBaseUrl('http://localhost:8080/'), 'http://localhost:8080');
   assert.equal(validateBaseUrl('http://192.168.0.20:1234/v1/'), 'http://192.168.0.20:1234/v1');
   assert.equal(validateBaseUrl('https://meu-servidor.example.com/v1'), 'https://meu-servidor.example.com/v1');
   for (const bad of ['http://example.com/v1', 'http://8.8.8.8', 'ftp://localhost', 'https://user:pass@host.com', 'não é url', '']) {
@@ -101,7 +94,7 @@ test('falhas do provedor viram mensagens claras e a chave nunca aparece', async 
       (error) => new RegExp(pattern, 'i').test(error.message) && !error.message.includes(KEY));
   }
   const offline = async () => { throw new TypeError('fetch failed'); };
-  await assert.rejects(createClient({ provider: 'ollama', model: 'm' }, { fetchImpl: offline }).chat({ user: 'u' }), /indisponível/);
+  await assert.rejects(createClient({ provider: 'openai', apiKey: KEY, model: 'm' }, { fetchImpl: offline }).chat({ user: 'u' }), /conectar ao provedor/);
   const slow = async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e; };
   await assert.rejects(createClient({ provider: 'groq', apiKey: KEY, model: 'm' }, { fetchImpl: slow }).chat({ user: 'u' }), /a tempo/);
 });
@@ -155,20 +148,22 @@ test('configurações: chave em texto puro é protegida assim que a criptografia
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('configurações: valida modelo, chave, endereço e escolha da IA por tarefa (padrão: Ollama)', () => {
+test('configurações: valida modelo, chave, endereço e escolha da IA por tarefa (padrão: primeira IA pronta)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-ai-'));
   try {
     const settings = openAiSettings(dir);
-    assert.deepEqual(settings.getTasks(), { generate: 'ollama', review: 'ollama' });
+    assert.deepEqual(settings.getTasks(), { generate: 'gemini', review: 'gemini' });
     assert.throws(() => settings.updateProvider('openai', { model: 'com espaço' }), (e) => e.code === 'invalid_model');
     assert.throws(() => settings.updateProvider('openai', { apiKey: 'curta' }), (e) => e.code === 'invalid_key');
     assert.throws(() => settings.updateProvider('openai', { baseUrl: 'https://x.com' }), (e) => e.code === 'url_locked');
     assert.throws(() => settings.updateProvider('custom', { baseUrl: 'http://example.com/v1' }), (e) => e.code === 'insecure_url');
     assert.throws(() => settings.setTasks({ generate: 'inexistente' }), (e) => e.code === 'unknown_provider');
     settings.setTasks({ review: 'anthropic' });
-    assert.deepEqual(settings.getTasks(), { generate: 'ollama', review: 'anthropic' });
+    assert.deepEqual(settings.getTasks(), { generate: 'gemini', review: 'anthropic' });
+    settings.updateProvider('groq', { apiKey: KEY, model: 'm1' });
+    assert.equal(settings.getTasks().generate, 'groq', 'sem escolha salva, usa a primeira IA configurada');
     assert.equal(settings.clear(), true);
-    assert.deepEqual(settings.getTasks(), { generate: 'ollama', review: 'ollama' });
+    assert.deepEqual(settings.getTasks(), { generate: 'gemini', review: 'gemini' });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -206,8 +201,9 @@ test('rotas de IA exigem o PIN do professor', async () => {
 
 test('fluxo completo: salvar chave, testar sem expor, escolher IA e gerar/analisar com Claude', async () => {
   const catalog = await call('/api/ai/providers');
-  assert.ok(['ollama', 'lmstudio', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter'].every((id) => catalog.data.catalog.some((p) => p.id === id)));
-  assert.equal(catalog.data.tasks.generate, 'ollama');
+  assert.ok(['openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter'].every((id) => catalog.data.catalog.some((p) => p.id === id)));
+  assert.ok(!catalog.data.catalog.some((p) => ['ollama', 'lmstudio'].includes(p.id)));
+  assert.equal(catalog.data.tasks.generate, 'gemini');
 
   const tested = await call('/api/ai/providers/anthropic/test', { method: 'POST', body: { apiKey: KEY, model: 'claude-m' } });
   assert.equal(tested.status, 200); assert.deepEqual(tested.data.models, ['claude-m']);

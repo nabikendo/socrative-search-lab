@@ -1,3 +1,4 @@
+import { confirmAction } from '../lib/confirm.js';
 import qrcode from 'qrcode-generator';
 import { api } from '../lib/api.js';
 import { h, clear, toast, plural } from '../lib/dom.js';
@@ -225,7 +226,28 @@ function render() {
       m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions)) }, 'Imprimir prova'),
       m.id && !m.pdfOnly && h('button', { class: 'btn quiet', onclick: guard(async () => printExam(m.title, payload().questions, { key: true })) }, 'Imprimir gabarito'),
       m.id && h('button', { class: 'btn quiet', onclick: guard(async () => { state.model = { ...blank(), title: `${m.title} (cópia)`, questions: payloadQuestions(m).map((q) => ({ ...q, correctIndex: typeof q.correct==='string'?q.options.indexOf(q.correct):null, correctIndexes:Array.isArray(q.correct)?q.correct.map((value)=>q.options.indexOf(value)).filter((i)=>i>=0):[],numericAnswer:q.type==='numeric'?q.correct:'' })) }; state.dirty = true; }) }, 'Duplicar'),
-      m.id && !isOpen && !isPaused && h('button', { class: 'btn danger', onclick: guard(async () => { if (!confirm('Excluir esta prova?')) return; await api(`/api/exams/${m.id}`, { method: 'DELETE' }); await loadList(); await select(state.exams[0]?.id); }) }, 'Excluir'))));
+      m.id && !isOpen && !isPaused && h('button', { class: 'btn danger', onclick: guard(() => deleteExam(m)) }, 'Excluir'))));
+}
+// Exclui a prova. Se já tem respostas, pede confirmação digitada e oferece cópia de segurança antes.
+async function deleteExam(m) {
+  const info = state.exams.find((entry) => entry.id === m.id);
+  const sessions = info?.sessions ?? 0;
+  let query = '';
+  if (sessions > 0) {
+    const { confirmed, backup } = await confirmAction({
+      title: `Excluir “${m.title}”?`,
+      lead: 'Esta prova já tem respostas de alunos. Excluir apaga a prova, as respostas e as notas — isso não pode ser desfeito.',
+      rows: [{ label: 'Alunos que participaram', count: sessions }, { label: 'Provas enviadas', count: info?.submitted ?? 0 }],
+      notes: ['A cópia de segurança fica em Configurações › Dados e pode ser restaurada em “Importar backup”.'],
+      phrase: 'EXCLUIR', confirmLabel: 'Excluir prova e respostas', danger: true, backup: true, backupLabel: 'Fazer uma cópia de segurança antes (recomendado)',
+    });
+    if (!confirmed) return;
+    query = `?confirm=1${backup ? '&backup=1' : ''}`;
+  } else if (!confirm('Excluir esta prova?')) return;
+  await api(`/api/exams/${m.id}${query}`, { method: 'DELETE' });
+  toast('Prova excluída.');
+  await loadList();
+  await select(state.exams[0]?.id);
 }
 const payloadQuestions = (m) => payload().questions.map((q) => ({ ...q, id: questionId() }));
 
