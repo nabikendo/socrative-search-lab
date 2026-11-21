@@ -96,7 +96,7 @@ test('falhas do provedor viram mensagens claras e a chave nunca aparece', async 
   const offline = async () => { throw new TypeError('fetch failed'); };
   await assert.rejects(createClient({ provider: 'openai', apiKey: KEY, model: 'm' }, { fetchImpl: offline }).chat({ user: 'u' }), /conectar ao provedor/);
   const slow = async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e; };
-  await assert.rejects(createClient({ provider: 'groq', apiKey: KEY, model: 'm' }, { fetchImpl: slow }).chat({ user: 'u' }), /a tempo/);
+  await assert.rejects(createClient({ provider: 'groq', apiKey: KEY, model: 'm' }, { fetchImpl: slow }).chat({ user: 'u' }), /demorou demais/);
 });
 
 test('teste de conexão: lista modelos, faz chamada mínima e tolera provedor sem /models', async () => {

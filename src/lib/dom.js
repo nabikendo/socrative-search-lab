@@ -29,6 +29,8 @@ export function toast(message) {
   let el = $('#toast');
   if (!el) { el = h('div', { id: 'toast', class: 'toast', role: 'status', 'aria-live': 'polite' }); document.body.append(el); }
   el.textContent = message;
+  // Camada superior: o aviso aparece por cima de janelas abertas (dialog), não atrás delas.
+  if (el.showPopover) { el.popover = 'manual'; try { el.hidePopover(); } catch { /* ainda fechado */ } try { el.showPopover(); } catch { /* sem suporte */ } }
   el.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2800);

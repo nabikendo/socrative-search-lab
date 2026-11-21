@@ -28,6 +28,7 @@ async function save(question) {
   bank.unshift(result.question);state.draft=null;render();toast('Questão salva com o descritor selecionado.');
 }
 function generate() {
+  state.draftByAi = false;
   state.draft = generateDescriptorQuestion(state.skill, Math.floor(Math.random()*1e9)+1);
   state.error=state.draft?'':'Este descritor não tem gerador automático validado; use a criação orientada.';
   render();
@@ -56,26 +57,30 @@ async function aiEditor() {
   catch (error) { toast(error.message); return; }
   if (!target) return;
   const skill = findSkill(state.skill);
+  // Erros aparecem dentro da janela (o aviso flutuante ficava escondido atrás dela).
+  const problem=h('p',{class:'notice danger',role:'alert',hidden:true});
   const form=h('form',{class:'stack-s',onsubmit:async(event)=>{
     event.preventDefault();
     const values=new FormData(form);
     const button=form.querySelector('[type=submit]');
-    button.disabled=true;button.textContent='Gerando… (pode levar até 1 minuto)';
+    button.disabled=true;problem.hidden=true;
+    const started=Date.now();const tick=()=>{button.textContent=`Gerando… ${Math.round((Date.now()-started)/1000)} s`;};tick();const timer=setInterval(tick,1000);
     try{
       const result=await api('/api/ai/descriptor-question',{method:'POST',body:{
         skillId:skill.id,
         context:String(values.get('context')||'')}});
       if(state.skill!==skill.id){toast('Você mudou de descritor; a questão gerada não foi inserida.');return;}
-      state.draft=result.question;state.error='';dialog.close();render();
+      state.draft=result.question;state.draftByAi=true;state.error='';dialog.close();render();
       toast('Rascunho gerado. Confira todas as alternativas e o gabarito antes de salvar.');
-    }catch(error){toast(error.message);}
-    finally{button.disabled=false;button.textContent='Gerar rascunho com IA';}
+    }catch(error){problem.textContent=error.message;problem.hidden=false;}
+    finally{clearInterval(timer);button.disabled=false;button.textContent='Gerar rascunho com IA';}
   }},
     h('p',{class:'notice'},'Descritor '+skill.code+': '+skill.description),
     field('Texto-base e orientações adicionais (obrigatório para Língua Portuguesa)',h('textarea',{
       name:'context',rows:5,maxLength:8000,
       placeholder:skill.subject==='Língua Portuguesa'?'Cole aqui o texto que o aluno deverá interpretar.':'Opcional: contexto escolar, situações-problema ou conteúdos específicos.'})),
     h('p',{class:'caption'},aiNote(target)+' A validação estrutural não garante resposta correta; revise antes de aplicar.'),
+    problem,
     h('div',{class:'row'},
       h('button',{class:'btn secondary',type:'button',onclick:()=>dialog.close()},'Cancelar'),
       h('button',{class:'btn',type:'submit'},'Gerar rascunho com IA')));
@@ -222,7 +227,7 @@ function render() {
             h('button',{class:'btn secondary',disabled:state.working,onclick:analyze},state.working?'Analisando…':'Analisar resultados')),
           !SUPPORTED_GENERATORS.includes(skill.id)&&h('p',{class:'caption'},'Não há gerador automático verificado para este descritor. A criação orientada permanece disponível.')),
         state.error&&h('p',{class:'notice warn',role:'alert'},state.error),
-        state.draft&&h('div',{class:'stack-s'},h('h3',{class:'headline'},'Questão inédita gerada por regras — revise'),questionCard(state.draft,true)),
+        state.draft&&h('div',{class:'stack-s'},h('h3',{class:'headline'},state.draftByAi?'Rascunho criado pela IA — revise antes de usar':'Questão inédita gerada por regras — revise'),questionCard(state.draft,true)),
         report&&h('div',{class:'card stack-s atlas-descriptor-analysis'},
           h('h3',{class:'headline'},'Análise das avaliações salvas'),
           h('div',{class:'atlas-descriptor-metrics'},
