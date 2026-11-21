@@ -1,4 +1,4 @@
-import { api } from '../lib/api.js';
+import { api, downloadFile } from '../lib/api.js';
 import { h, clear, toast, plural, formatScore } from '../lib/dom.js';
 import { finalAnswersForItem } from '../../shared/assessment-results.js';
 import { skillLabel } from '../../shared/skills.js';
@@ -119,7 +119,7 @@ function schoolExport(exam) {
       if (!chosen.length || new Set(chosen).size !== chosen.length) { toast('Escolha colunas sem repetir.'); return; }
       const settings = { scale: scale.value, columns: chosen.join(',') };
       localStorage.setItem('atlas.schoolExport', JSON.stringify(settings));
-      location.href = `/api/exams/${exam.id}/export.csv?${new URLSearchParams(settings)}`;
+      downloadFile(`/api/exams/${exam.id}/export.csv?${new URLSearchParams(settings)}`).catch((error) => toast(error.message));
     } },
     h('label', { class: 'field' }, 'Nota máxima na planilha', scale),
     h('div', { class: 'class-grid' }, selects.map((select, index) => h('label', { class: 'field' }, `Coluna ${index + 1}`, select))),

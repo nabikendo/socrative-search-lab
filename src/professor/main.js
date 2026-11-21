@@ -1,5 +1,5 @@
-import { api } from '../lib/api.js';
-import { $, $$, h, clear } from '../lib/dom.js';
+import { api, downloadFile } from '../lib/api.js';
+import { $, $$, h, clear, toast } from '../lib/dom.js';
 import { initializeThemeButton } from '../lib/theme.js';
 import * as roster from './roster.js';
 import * as exam from './exam.js';
@@ -54,10 +54,15 @@ function showLogin(needsPin = pinNeeded) {
 // Aviso fixo enquanto o modo de teste estiver ativo: os dados mostrados são fictícios.
 async function syncTestBanner() {
   $('#test-banner')?.remove();
+  document.documentElement.style.removeProperty('--test-banner-h');
   try {
     if (!(await api('/api/test-mode')).active) return;
     const leave = h('button', { class: 'btn quiet', type: 'button', onclick: async () => { await api('/api/test-mode', { method: 'POST', body: { action: 'exit' } }); location.reload(); } }, 'Sair do modo de teste');
     $('#app').prepend(h('div', { id: 'test-banner', class: 'test-banner', role: 'status' }, 'MODO DE TESTE — os dados são fictícios e não afetam seus dados reais.', leave));
+    // A barra do topo fica logo abaixo do aviso (os dois são fixos ao rolar).
+    const banner = $('#test-banner');
+    const fit = () => document.documentElement.style.setProperty('--test-banner-h', `${banner.offsetHeight}px`);
+    fit(); new ResizeObserver(fit).observe(banner);
   } catch { /* sem o aviso, o painel continua funcionando */ }
 }
 
@@ -110,6 +115,16 @@ $('#login-form').addEventListener('submit', async (event) => {
 $('#logout').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); sessionStorage.setItem('atlas.loggedOut', '1'); await start(); });
 window.addEventListener('atlas:auth-required', () => start());
 window.addEventListener('atlas:welcome', () => showWelcome({ goto: openTab, selectSection }));
+
+// Links de download do painel (CSV, XLSX, PDF, backup, chamada…) baixam sem sair da tela.
+// Se o servidor recusar (modo de teste, sessão expirada, prova apagada), mostra o aviso em vez de
+// trocar o painel por uma página com o JSON do erro — no app instalado não havia como voltar.
+document.addEventListener('click', (event) => {
+  const link = event.target.closest?.('a[href^="/api/"]');
+  if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  downloadFile(link.getAttribute('href')).catch((error) => toast(error.message));
+});
 window.addEventListener('atlas:goto', (event) => openTab(event.detail));
 
 // Entra sozinho neste computador; pede o PIN só em aparelhos da rede (ou se o professor exigir nas configurações).

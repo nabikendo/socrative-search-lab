@@ -139,3 +139,11 @@
 .combo-chips:empty { display: none; }
 .chip { border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 999px; padding: 6px 12px; min-height: 36px; font: inherit; font-size: 14px; cursor: pointer; }
 .chip:hover, .chip:focus-visible { border-color: var(--accent, #2563eb); }
+
+/* Modo de teste: o aviso fica por cima e a barra do topo para logo abaixo dele ao rolar. */
+#app > .test-banner { z-index: 40; }
+html #app .topbar { top: var(--test-banner-h, 0px); }
+html #app .settings-nav { top: calc(72px + var(--test-banner-h, 0px)); }
+html #app #tab-prova .atlas-exam-workspace .atlas-exam-config,
+html #app #tab-banco .atlas-bank-sidebar { top: calc(78px + var(--test-banner-h, 0px)); }
+html #app #tab-descritores .atlas-descriptor-sidebar { top: calc(76px + var(--test-banner-h, 0px)); max-height: calc(100dvh - 92px - var(--test-banner-h, 0px)); }

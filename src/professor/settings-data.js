@@ -1,4 +1,4 @@
-import { api } from '../lib/api.js';
+import { api, downloadFile } from '../lib/api.js';
 import { h, clear, toast } from '../lib/dom.js';
 import { confirmAction } from '../lib/confirm.js';
 import { card, field, button, badge, notice } from './settings-kit.js';
@@ -37,7 +37,7 @@ function backupSection(status) {
   };
   return card('Backup', 'Cópia completa no formato .atlas, com provas, turmas, resultados e anexos. Backup automático, restauração seletiva e privacidade ficam em Ajuda.',
     h('div', { class: 'settings-actions' },
-      button('Exportar backup', () => { location.href = '/api/backup'; }, { status }),
+      button('Exportar backup', async () => { const name = await downloadFile('/api/backup'); status?.(`Backup salvo: ${name}`); }, { status }),
       button('Importar backup', pick, { status })));
 }
 
