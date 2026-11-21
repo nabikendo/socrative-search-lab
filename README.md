@@ -16,7 +16,9 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 
 ![Painel de resultados](docs/img/resultados.png)
 
-> As imagens mostram dados de exemplo e foram feitas antes do visual novo da versão 1.2.0 (mais limpo, no estilo dos apps do macOS).
+> As imagens mostram dados de exemplo e são de versões anteriores; o visual atual é o da versão 1.4.0.
+
+**Versão atual: 1.4.0** (estável). Aplicada e testada com turmas de até **40 alunos** ao mesmo tempo. Veja as [novidades da 1.4.0](#novidades-da-versão-140).
 
 ---
 
@@ -31,6 +33,8 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 7. [Segurança e privacidade](#7-segurança-e-privacidade)
 8. [Dados, backup e atualização](#8-dados-backup-e-atualização)
 9. [Para quem desenvolve](#9-para-quem-desenvolve)
+10. [Novidades da versão 1.4.0](#novidades-da-versão-140)
+11. [Licença](#licença)
 
 ---
 
@@ -39,7 +43,7 @@ O Atlas deixa você aplicar provas na sala de aula **sem Internet**. O seu compu
 - Um **computador** (Windows, Mac ou Linux) que ficará ligado durante a prova.
 - Um **roteador Wi‑Fi** (pode estar sem Internet). O computador e os aparelhos dos alunos precisam estar **na mesma rede**.
 - **Internet apenas na primeira instalação**, para baixar o programa. Depois, funciona totalmente offline.
-- O programa gratuito **Node.js** (o próprio Atlas ajuda você a instalá-lo, veja abaixo).
+- No **Windows**, só o instalador do Atlas. Nos pacotes ZIP e no código-fonte, o Atlas usa o **Node.js** (os pacotes já o trazem; veja abaixo).
 
 ## 2. Instalação (uma vez só)
 
@@ -50,7 +54,7 @@ Você não precisa usar terminal, comandos nem saber programar.
 1. Abra a página **[Releases](../../releases/latest)** e baixe **`Atlas-Setup-…-x64.exe`** (a versão estável mais recente).
 2. Dê dois cliques no instalador. Se o Windows mostrar "O Windows protegeu o computador", clique em **Mais informações → Executar assim mesmo**.
 3. Abra o **Atlas** pelo menu Iniciar. Na primeira vez ele pergunta se deve **liberar a rede para os alunos** (Firewall do Windows): clique em **Liberar agora** e aceite o aviso do administrador. Para refazer depois: menu **Atlas › Liberar no Firewall do Windows**.
-4. O painel do professor abre na própria janela do Atlas, sem navegador e **sem janela preta**. O **PIN** está em **Atlas › Mostrar PIN do perfil principal**.
+4. O painel do professor abre na própria janela do Atlas, sem navegador e **sem janela preta**, e **sem pedir PIN neste computador**. Na primeira vez aparecem as **boas-vindas** com dicas (reveja em **Ajuda › Rever boas-vindas**). O **PIN** só é pedido quando o painel é aberto de outro aparelho da rede; ele está em **Atlas › Mostrar PIN do perfil principal**. Para exigir o PIN também neste computador: **Configurações › Segurança**.
 
 O instalador já inclui tudo e funciona **sem Internet**. Para atualizar, veja a seção 8.
 
@@ -133,13 +137,13 @@ A alternativa com `*` é a correta. `|| peso=2` define o peso (padrão 1).
 
 ### Passo 3: Abrir para os alunos
 
-Clique em **Abrir para os alunos**. O painel mostra o **código de 4 números**, o **endereço** e um **QR Code**. Peça aos alunos que:
+Clique em **Abrir para os alunos**. O Atlas mostra um resumo para revisar e, ao confirmar, leva a tela até o **código de 4 números**, o **endereço** e o **QR Code**. **Abrir acompanhamento no projetor** abre uma janela própria com o código e os contadores, para mostrar à turma. Peça aos alunos que:
 
 1. Conectem o aparelho ao Wi‑Fi da sala.
 2. Abram o **QR Code** com a câmera (ou digitem o endereço mostrado, algo como `http://192.168.0.25:8080/prova`).
 3. Digitem o **código** e o **número da lista de frequência**.
 4. Confirmem o nome e respondam **uma questão por vez**. No computador, os atalhos são: `←` `→` navegar, `1`–`9` escolher a alternativa, `R` marcar para revisar, `Esc` limpar.
-5. Ao final, tocam em **Entregar prova**. O Atlas avisa quais questões ficaram em branco ou marcadas para revisar.
+5. Ao final, tocam em **Finalizar e entregar**. O Atlas avisa quais questões ficaram em branco ou marcadas para revisar; tocar duas vezes em **Enviar** não duplica a entrega.
 
 **Na tela do aluno:** barra de progresso, grade para pular para qualquer questão, botões **A−/A+** para o tamanho da letra, **Revisar** (marcação só dele) e um **rascunho** que fica apenas no aparelho do aluno e não é enviado ao professor.
 
@@ -153,8 +157,8 @@ Na aba **Resultados**, em tempo real:
 - a **média** da turma;
 - o **desempenho por questão** (% de acerto e o erro mais comum), para ver o que a turma não aprendeu;
 - a lista de alunos: toque em um nome para ver as respostas e **dar nota às questões abertas**;
-- **Reabrir para o aluno**, caso alguém envie sem querer;
-- **Baixar planilha**, um arquivo que abre direto no Excel, com acentos e vírgulas decimais corretos (inclui as colunas de saídas da página);
+- **Reabrir para o aluno**, caso alguém envie sem querer: em poucos segundos a tela do aluno volta sozinha para a prova, com as respostas mantidas;
+- **Baixar CSV** ou **Baixar XLSX**, que abrem direto no Excel, com acentos, vírgulas decimais e data e hora do seu computador (incluem as colunas de saídas da página);
 - **Imprimir prova** e **Imprimir gabarito**, na aba Prova, para aplicar no papel se a rede falhar.
 
 Para encerrar, volte à aba **Prova** e clique em **Encerrar prova** (ou deixe o horário de encerramento programado). Respostas já salvas são mantidas e uma cópia é guardada automaticamente (seção 5).
@@ -227,10 +231,13 @@ Com uma prova aberta o Atlas impede a suspensão no instalador do Windows. No pa
 O aluno digitou um número que não está na turma importada. Confira a aba **Turma**.
 
 **"Este número já está em uso em outro aparelho".**
-Outro aparelho está usando o mesmo número agora. Se o aluno trocou de aparelho, espere cerca de 30 segundos e tente de novo.
+O número fica vinculado ao primeiro aparelho que entrou. Se o aluno trocou de aparelho de verdade, em **Resultados › Presença** toque em **Liberar dispositivo** ao lado do nome dele: o novo aparelho entra com as respostas já salvas e o antigo perde o acesso.
 
 **O aluno enviou sem querer.**
-Em **Resultados**, abra o aluno e clique em **Reabrir para o aluno**.
+Em **Resultados**, abra o aluno e clique em **Reabrir para o aluno** (o Atlas pede o motivo, que fica no histórico). A tela do aluno volta sozinha para a prova em alguns segundos. Se ele já fechou a página, basta entrar de novo com o código e o número.
+
+**A IA não gera a questão ou diz que o modelo foi desativado.**
+Em **Configurações › Inteligência artificial**, use **Testar conexão**. Se o provedor tiver desativado o modelo, o Atlas mostra o substituto e o botão **Usar … e salvar**. Modelos "flash-lite" respondem em poucos segundos; modelos maiores podem demorar mais de um minuto.
 
 **O PDF anexado não aparece no celular.**
 O Atlas desenha o PDF dentro da prova, então deve aparecer (botão **Ver documento**). Se uma página falhar, o aluno pode tocar em **Abrir em outra aba**. Um **DOCX** também funciona.
@@ -252,7 +259,8 @@ As questões ficam travadas. Use **Duplicar** para criar uma cópia e alterar.
 - Nenhuma fonte, script ou imagem vem da Internet.
 - Os dados dos alunos ficam **só neste computador**. **Nunca publique a pasta `data/`.** A cópia automática (`Documentos\Atlas\Copias`) contém nomes e respostas: se essa pasta sincroniza com a nuvem, cuide de quem tem acesso à sua conta.
 - O aluno é avisado de que o professor vê quando ele sai da página da prova; só o horário, a contagem e a duração ficam guardados.
-- Limite conhecido: a rede da sala não usa HTTPS. Use um Wi‑Fi com senha própria e não compartilhe o código da prova fora da turma.
+- No modo padrão (`http`) a rede da sala não usa criptografia: use um Wi‑Fi com senha própria e não compartilhe o código da prova fora da turma. Os modos `https` e `auto` fazem cada aparelho aceitar um aviso de certificado; teste nos Chromebooks da escola antes de usar.
+- Tentativas repetidas de adivinhar números de alunos são barradas, sem travar a sala: até 40 alunos podem entrar ao mesmo tempo, mesmo que a rede os mostre com um único endereço.
 
 ## 8. Dados, backup e atualização
 
@@ -298,15 +306,15 @@ docs/             AUDIT.md (auditoria de segurança), ROADMAP.md (próximos pass
 git tag v1.1.0 && git push origin v1.1.0
 ```
 
-O GitHub Actions (`.github/workflows/pacotes.yml`) roda os testes, monta os pacotes para Windows, Mac (Apple e Intel) e Linux, com o Node.js dentro, e os anexa à página Releases. Também dá para rodar manualmente em **Actions → Pacotes prontos para usar → Run workflow**.
+O GitHub Actions (`.github/workflows/pacotes.yml`) roda os testes, monta os pacotes para Windows, Mac (Apple e Intel) e Linux, com o Node.js dentro, e os anexa à página Releases. A publicação estável do instalador do Windows já dispara esse fluxo sozinha. Também dá para rodar manualmente em **Actions → Pacotes prontos para usar → Run workflow**.
 
 ### Publicar o aplicativo Android
 
-O projeto fica em `android/` (Java, sem bibliotecas externas) e é compilado por `.github/workflows/android.yml` a cada mudança nessa pasta. Para anexar o APK à release da versão do `package.json`, use `[publish atlas apk]` na mensagem do commit. A assinatura vem dos segredos `ATLAS_KEYSTORE_B64` e `ATLAS_KEYSTORE_PASSWORD` do repositório; guarde uma cópia da chave, pois sem ela as próximas versões não instalam por cima das anteriores.
+O projeto fica em `android/` (Java, sem bibliotecas externas) e é compilado por `.github/workflows/android.yml` a cada mudança nessa pasta na branch `main`. Para anexar o APK à release da versão do `package.json`, use `[publish atlas apk]` na mensagem do commit ou rode o fluxo em **Actions → Atlas Android → Run workflow** marcando *publish*. A assinatura vem dos segredos `ATLAS_KEYSTORE_B64` e `ATLAS_KEYSTORE_PASSWORD` do repositório; guarde uma cópia da chave, pois sem ela as próximas versões não instalam por cima das anteriores.
 
 ### Publicar o instalador do Windows
 
-O instalador (Electron) é gerado por `.github/workflows/desktop-windows.yml` a cada push na branch `feat/atlas-desktop-hardening` que mexa no código. Ele roda os testes, empacota, abre o app empacotado para conferir o painel e só então publica, se a mensagem do commit tiver uma marca:
+O instalador (Electron) é gerado por `.github/workflows/desktop-windows.yml` a cada push na branch `main` que mexa no código. Ele roda os testes, empacota, abre o app empacotado para conferir o painel e só então publica, se a mensagem do commit tiver uma marca:
 
 - `[publish atlas stable]` com versão `1.2.0` no `package.json`: cria a release estável (publica `latest.yml` e também `beta.yml`, para quem está no canal beta atualizar);
 - `[publish atlas beta]` com versão `1.2.0-beta.N`: cria um pré-lançamento.
@@ -314,17 +322,22 @@ O instalador (Electron) é gerado por `.github/workflows/desktop-windows.yml` a 
 A versão precisa ser nova: o GitHub recusa uma tag que já existe, e o atualizador só oferece versões maiores.
 
 
-## Configurações — Sprint 1 (branch de desenvolvimento)
+## Novidades da versão 1.4.0
 
-No painel do professor, a engrenagem abre **Configurações**, com aparência (tema claro/escuro/automático, fonte, contraste, compactação e apresentação), padrões de prova, IP da rede, acesso ao backup .atlas existente e links do projeto. Preferências do professor são salvas em `data/teacher-settings.json` por API autenticada; alunos guardam suas escolhas visuais no navegador. A tela do projetor permite alternar o modo apresentação.
+**Para o professor**
+- **Entrada mais simples:** no computador do professor o Atlas abre direto, sem PIN; outros aparelhos da rede pedem o PIN. Boas-vindas com dicas na primeira vez.
+- **Prova nova** já começa com o editor de questões; ao abrir a prova, a tela vai até o código e o QR Code; o **projetor** abre numa janela própria.
+- **Excluir prova com respostas**, digitando EXCLUIR e com cópia de segurança opcional.
+- **Turma:** importar e atualizar listas mostra entradas, saídas e mudanças de nome antes de salvar.
+- **Inteligência artificial em nuvem** (Gemini, ChatGPT, Claude, DeepSeek, Groq, OpenRouter, Mistral, xAI ou serviço compatível com OpenAI): lista de modelos com busca, teste de conexão, aviso quando o provedor desativa um modelo e erros mostrados dentro da janela. A IA local foi removida.
+- **Modo de teste** com faixa de aviso sempre visível; **Perfis** para professores diferentes no mesmo computador.
+- **Planilhas** CSV e XLSX com data e hora locais.
 
-**Limitações nesta branch:** o botão de rede atualiza os endereços; a rotação de código curto não está implementada. A exportação continua no formato nativo `.atlas`, não `.zip`. Limpeza de provas antigas permanece pendente. Os padrões de prova são persistidos, mas ainda não são aplicados automaticamente ao editor, ao envio de gabarito ou à notificação sonora. A versão estável não é alterada.
-
-### Entrada, boas-vindas e exclusão de provas (1.4.0-beta.6)
-- **PIN:** neste computador o Atlas abre direto; tablets e celulares da rede pedem o PIN (com a dica “Onde encontro o PIN?”). Para exigir o PIN também no computador: Configurações › Segurança.
-- **Boas-vindas:** dicas na primeira vez de cada perfil; reveja em Ajuda › Rever boas-vindas.
-- **Excluir prova com respostas:** confirmação digitando EXCLUIR e cópia de segurança opcional (restaurável em Importar backup). Provas abertas continuam protegidas.
-- **IA:** somente provedores em nuvem; seletor de modelos com busca e rolagem; limites de resposta maiores para não cortar a questão gerada.
+**Para os alunos**
+- Turmas de **até 40 alunos** entrando e entregando ao mesmo tempo, mesmo numa rede que mostra todos com um único endereço.
+- **Pedir ajuda** sempre ao alcance no celular; Voltar e Enviar sempre visíveis na janela de entrega, mesmo com o teclado aberto.
+- Prova reaberta pelo professor volta sozinha para a tela do aluno; respostas guardadas durante quedas de Wi‑Fi são enviadas ao reconectar.
+- Uso completo pelo teclado (Chromebook): atalhos `1`–`9`, `R`, setas e foco direto em **Sim, sou eu**.
 
 ## Licença
 

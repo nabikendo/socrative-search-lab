@@ -2,9 +2,15 @@ name: Atlas Android
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Anexar o APK à release da versão do package.json'
+        type: boolean
+        default: false
   push:
     branches:
       - feat/atlas-desktop-hardening
+      - main
     paths:
       - 'android/**'
       - '.github/workflows/android.yml'
@@ -64,7 +70,7 @@ jobs:
 
   release-apk:
     needs: build-apk
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish atlas apk]')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish atlas apk]')) || (github.event_name == 'workflow_dispatch' && inputs.publish)
     runs-on: ubuntu-latest
     permissions:
       contents: write
