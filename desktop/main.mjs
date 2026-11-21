@@ -224,6 +224,12 @@ async function start() {
   }
   if (!listening) throw new Error('Não foi possível escolher uma porta para o Atlas.');
   const port = atlas.server.address().port;
+  // Endereço do próprio Atlas. Na porta 80 o Chromium escreve "http://127.0.0.1/…" (sem ":80"), então a comparação
+  // é feita pela URL já interpretada. Antes, com a porta 80, recarregar a tela e abrir o projetor eram bloqueados.
+  const isAtlasUrl = (url, prefix = '/') => {
+    try { const u = new URL(url); return u.protocol === 'http:' && u.hostname === '127.0.0.1' && Number(u.port || 80) === port && u.pathname.startsWith(prefix); }
+    catch { return false; }
+  };
   // Endereços para os alunos conforme o modo de segurança (Configurações › Segurança).
   const studentUrls = () => atlas.studentUrls(port).map((url) => `${url}/prova`);
   window = new BrowserWindow({
@@ -254,7 +260,7 @@ async function start() {
   window.setMenuBarVisibility(true);
   window.webContents.setWindowOpenHandler(({ url }) => {
     // Acompanhamento no projetor: abre numa janela do próprio Atlas (antes era recusado e o botão não fazia nada).
-    if (url.startsWith('http://127.0.0.1:' + port + '/projetor')) {
+    if (isAtlasUrl(url, '/projetor')) {
       return { action: 'allow', overrideBrowserWindowOptions: {
         width: 1280, height: 760, autoHideMenuBar: true, title: 'Atlas — Projetor',
         backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f5f5f7',
@@ -267,10 +273,10 @@ async function start() {
   // A janela do projetor também só navega dentro do Atlas.
   window.webContents.on('did-create-window', (child) => {
     child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    child.webContents.on('will-navigate', (event, url) => { if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault(); });
+    child.webContents.on('will-navigate', (event, url) => { if (!isAtlasUrl(url)) event.preventDefault(); });
   });
   window.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('http://127.0.0.1:' + port + '/')) event.preventDefault();
+    if (!isAtlasUrl(url)) event.preventDefault();
   });
   await window.loadURL('http://127.0.0.1:' + port + '/professor');
   // durante uma prova aberta o computador não pode entrar em suspensão (os alunos perderiam a conexão)
