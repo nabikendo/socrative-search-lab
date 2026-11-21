@@ -320,7 +320,7 @@ No painel do professor, a engrenagem abre **Configurações**, com aparência (t
 
 **Limitações nesta branch:** o botão de rede atualiza os endereços; a rotação de código curto não está implementada. A exportação continua no formato nativo `.atlas`, não `.zip`. Limpeza de provas antigas permanece pendente. Os padrões de prova são persistidos, mas ainda não são aplicados automaticamente ao editor, ao envio de gabarito ou à notificação sonora. A versão estável não é alterada.
 
-### Entrada, boas-vindas e exclusão de provas (1.4.0-beta.5)
+### Entrada, boas-vindas e exclusão de provas (1.4.0-beta.6)
 - **PIN:** neste computador o Atlas abre direto; tablets e celulares da rede pedem o PIN (com a dica “Onde encontro o PIN?”). Para exigir o PIN também no computador: Configurações › Segurança.
 - **Boas-vindas:** dicas na primeira vez de cada perfil; reveja em Ajuda › Rever boas-vindas.
 - **Excluir prova com respostas:** confirmação digitando EXCLUIR e cópia de segurança opcional (restaurável em Importar backup). Provas abertas continuam protegidas.
