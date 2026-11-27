@@ -114,7 +114,6 @@ jobs:
           name: Atlas-Desktop-Linux
           path: |
             release-desktop/*.AppImage
-            release-desktop/*.AppImage.blockmap
             release-desktop/beta-linux.yml
             release-desktop/latest-linux.yml
           if-no-files-found: error
@@ -136,7 +135,7 @@ jobs:
         run: |
           APP=$(ls release-desktop/Atlas-*-x86_64.AppImage)
           TAG="v$(basename "$APP" | sed -E 's/^Atlas-(.*)-x86_64\.AppImage$/\1/')"
-          gh release upload "$TAG" "$APP" "$APP.blockmap" release-desktop/beta-linux.yml --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" "$APP" release-desktop/beta-linux.yml --repo "$GITHUB_REPOSITORY" --clobber
 
   release-windows:
     needs: build-windows
