@@ -93,6 +93,51 @@ jobs:
             release-desktop/latest.yml
           if-no-files-found: error
 
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+      - name: Gerar AppImage para Linux
+        run: npx electron-builder --linux AppImage --x64 --publish never
+      - name: Verificar o AppImage e o atualizador
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          APP="release-desktop/Atlas-${VERSION}-x86_64.AppImage"
+          test -s "$APP" && test -s "release-desktop/beta-linux.yml" || { echo "Arquivo ausente: $APP"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Atlas-Desktop-Linux
+          path: |
+            release-desktop/*.AppImage
+            release-desktop/*.AppImage.blockmap
+            release-desktop/beta-linux.yml
+            release-desktop/latest-linux.yml
+          if-no-files-found: error
+
+  release-linux:
+    needs: [build-linux, release-windows]
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish atlas beta]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Atlas-Desktop-Linux
+          path: release-desktop
+      - name: Anexar AppImage à versão beta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APP=$(ls release-desktop/Atlas-*-x86_64.AppImage)
+          TAG="v$(basename "$APP" | sed -E 's/^Atlas-(.*)-x86_64\.AppImage$/\1/')"
+          gh release upload "$TAG" "$APP" "$APP.blockmap" release-desktop/beta-linux.yml --repo "$GITHUB_REPOSITORY" --clobber
+
   release-windows:
     needs: build-windows
     if: github.event_name == 'push' && (contains(github.event.head_commit.message, '[publish atlas beta]') || contains(github.event.head_commit.message, '[publish atlas stable]'))

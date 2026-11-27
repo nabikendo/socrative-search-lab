@@ -1,6 +1,6 @@
 {
   "name": "atlas-provas",
-  "version": "1.5.0-beta.1",
+  "version": "1.5.0-beta.2",
   "private": true,
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -71,6 +71,13 @@
         "nsis"
       ],
       "artifactName": "Atlas-Setup-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Education",
+      "artifactName": "Atlas-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
